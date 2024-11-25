@@ -15,6 +15,7 @@ DB_PATH = "passkey.db"
 PENDING_USERS = {}
 APPROVED_USERS = {}
 DENIED_USERS = {}
+BANNED_USERS = {}
 
 # Initialize the database if it doesn't exist
 def init_db():
@@ -42,6 +43,51 @@ def init_db():
 @app.route('/')
 def home():
     return jsonify({"message": "Service is running!"})
+
+# Ban a user
+@app.route('/ban', methods=['POST'])
+def ban_user():
+    username = request.form.get('username')
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if username in APPROVED_USERS:
+        APPROVED_USERS.pop(username)
+        BANNED_USERS[username] = True
+        logging.info(f"Username {username} has been banned.")
+        return jsonify({"status": "success", "message": f"Username {username} banned"}), 200
+    else:
+        return jsonify({"status": "failure", "message": f"Username {username} not found in approved list"}), 404
+
+# Unban a user
+@app.route('/unban', methods=['POST'])
+def unban_user():
+    username = request.form.get('username')
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if username in BANNED_USERS:
+        BANNED_USERS.pop(username)
+        logging.info(f"Username {username} has been unbanned.")
+        return jsonify({"status": "success", "message": f"Username {username} unbanned"}), 200
+    else:
+        return jsonify({"status": "failure", "message": f"Username {username} not found in banned list"}), 404
+
+# Kick a user
+@app.route('/kick', methods=['POST'])
+def kick_user():
+    username = request.form.get('username')
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if username in APPROVED_USERS:
+        logging.info(f"Username {username} has been kicked.")
+        return jsonify({"status": "success", "message": f"Username {username} kicked"}), 200
+    else:
+        return jsonify({"status": "failure", "message": f"Username {username} not found in approved list"}), 404
 
 # Passkey verification
 @app.route('/verify', methods=['POST'])
