@@ -1,70 +1,28 @@
 import sqlite3
-import logging
-import os
 
-# Database file path
 DB_PATH = "passkey.db"
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
+# Initialize the database and create the passkey table
 def init_db():
-    """Initializes the database and ensures required tables exist."""
-    if not os.path.exists(DB_PATH):
-        logging.info(f"Database file {DB_PATH} not found. It will be created.")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
 
-    conn = None
-    try:
-        # Connect to SQLite database
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
+    # Create the table if it doesn't exist
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS passkey (
+            key TEXT
+        )
+    """)
 
-        # Create the passkey table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS passkey (
-                key TEXT NOT NULL
-            )
-        """)
-        logging.info("Checked or created 'passkey' table.")
+    # Insert an initial passkey if the table is empty
+    cursor.execute("SELECT COUNT(*) FROM passkey")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("INSERT INTO passkey (key) VALUES ('default_passkey')")
+        print("Inserted default passkey.")
 
-        # Insert default passkey if the table is empty
-        cursor.execute("SELECT COUNT(*) FROM passkey")
-        if cursor.fetchone()[0] == 0:
-            cursor.execute("INSERT INTO passkey (key) VALUES ('default_passkey')")
-            logging.info("Inserted default passkey.")
-
-        # Create the registrations table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS registrations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                status TEXT DEFAULT 'pending'
-            )
-        """)
-        logging.info("Checked or created 'registrations' table.")
-
-        # Create the decline_reasons table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS decline_reasons (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL,
-                reason TEXT NOT NULL
-            )
-        """)
-        logging.info("Checked or created 'decline_reasons' table.")
-
-        # Commit the changes
-        conn.commit()
-        logging.info("Database initialized successfully.")
-    
-    except sqlite3.Error as e:
-        logging.error(f"Database initialization error: {e}")
-    finally:
-        # Ensure the connection is closed
-        if conn:
-            conn.close()
-            logging.info("Database connection closed.")
+    conn.commit()
+    conn.close()
 
 if __name__ == "__main__":
     init_db()
-    logging.info("Database setup complete.")
+    print("Database initialized.")
