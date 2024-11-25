@@ -15,16 +15,29 @@ def init_db():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+        
+        # Create passkey table if it doesn't exist
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS passkey (
                 key TEXT
             )
         """)
+        
         # Insert default passkey if the table is empty
         cursor.execute("SELECT COUNT(*) FROM passkey")
         if cursor.fetchone()[0] == 0:
             cursor.execute("INSERT INTO passkey (key) VALUES ('default_passkey')")
             logging.info("Inserted default passkey.")
+        
+        # Create registrations table if it doesn't exist
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS registrations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                status TEXT DEFAULT 'pending'
+            )
+        """)
+        
         conn.commit()
     except sqlite3.Error as e:
         logging.error(f"Database initialization error: {e}")
@@ -35,7 +48,7 @@ def init_db():
 # Root route
 @app.route('/')
 def home():
-    return jsonify({"message": "Passkey verification service is running!"})
+    return jsonify({"message": "Registration and passkey verification service is running!"})
 
 # Verify the passkey
 @app.route('/verify', methods=['POST'])
@@ -86,39 +99,56 @@ def update_passkey():
         if conn:
             conn.close()
 
+# Register a new user
+@app.route('/register', methods=['POST'])
+def register_user():
+    username = request.form.get('username')
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO registrations (username) VALUES (?)", (username,))
+        conn.commit()
+        logging.info(f"New registration received for username: {username}")
+        return jsonify({"status": "success", "message": "Registration submitted for review"}), 201
+    except sqlite3.IntegrityError:
+        return jsonify({"status": "failure", "message": "Username already exists"}), 409
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# Check the review status of a user
+@app.route('/review_status', methods=['GET'])
+def review_status():
+    username = request.args.get('username')
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT status FROM registrations WHERE username = ?", (username,))
+        result = cursor.fetchone()
+
+        if result:
+            return jsonify({"status": "success", "review_status": result[0]}), 200
+        else:
+            return jsonify({"status": "failure", "message": "Username not found"}), 404
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
 if __name__ == "__main__":
     # Initialize the database
     init_db()
     app.run(debug=True, host="0.0.0.0", port=5000)
-
-
-
-
-import sqlite3
-
-DB_PATH = "passkey.db"
-
-# Initialize the database and create the passkey table
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    # Create the table if it doesn't exist
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS passkey (
-            key TEXT
-        )
-    """)
-
-    # Insert an initial passkey if the table is empty
-    cursor.execute("SELECT COUNT(*) FROM passkey")
-    if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO passkey (key) VALUES ('default_passkey')")
-        print("Inserted default passkey.")
-
-    conn.commit()
-    conn.close()
-
-if __name__ == "__main__":
-    init_db()
-    print("Database initialized.")
