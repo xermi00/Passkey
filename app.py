@@ -115,15 +115,21 @@ def register():
     return jsonify({"status": "success", "message": "User registered"}), 200
 
 @app.route('/status', methods=['GET'])
+@app.route('/status', methods=['GET'])
 def status():
     username = request.args.get('username')
-    if username in APPROVED_USERS:
-        return jsonify({"status": "approved"}), 200
-    if username in PENDING_USERS:
+
+    if username in BANNED_USERS:
+        return jsonify({"status": "banned"}), 200
+    elif username in APPROVED_USERS:
+        return jsonify({"status": "approved", "username": username}), 200
+    elif username in PENDING_USERS:
         return jsonify({"status": "pending"}), 200
-    if username in DENIED_USERS:
+    elif username in DENIED_USERS:
         return jsonify({"status": "denied", "message": DENIED_USERS[username]}), 200
-    return jsonify({"status": "not_found"}), 404
+    else:
+        return jsonify({"status": "not_found", "message": "Username not found"}), 404
+
 
 @app.route('/approve', methods=['POST'])
 def approve_user():
