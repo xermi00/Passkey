@@ -38,20 +38,17 @@ def init_db():
             CREATE TABLE IF NOT EXISTS registrations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
-                status TEXT DEFAULT 'pending',
-                registration_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                status TEXT DEFAULT 'pending'
             )
         """)
         logging.info("Checked or created 'registrations' table.")
 
-        # Create the decline reasons table
+        # Create the decline_reasons table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS decline_reasons (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL,
-                reason TEXT NOT NULL,
-                decline_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (username) REFERENCES registrations (username)
+                reason TEXT NOT NULL
             )
         """)
         logging.info("Checked or created 'decline_reasons' table.")
@@ -59,11 +56,11 @@ def init_db():
         # Commit the changes
         conn.commit()
         logging.info("Database initialized successfully.")
-
+    
     except sqlite3.Error as e:
         logging.error(f"Database initialization error: {e}")
     finally:
-        # Ensure the cursor is closed
+        # Ensure the connection is closed
         if conn:
             conn.close()
             logging.info("Database connection closed.")
