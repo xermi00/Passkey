@@ -20,9 +20,10 @@ def init_db():
         # Create the passkey table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS passkey (
-                key TEXT
+                key TEXT NOT NULL
             )
         """)
+        logging.info("Passkey table initialized.")
 
         # Insert default passkey if the table is empty
         cursor.execute("SELECT COUNT(*) FROM passkey")
@@ -34,10 +35,12 @@ def init_db():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS registrations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE,
+                username TEXT UNIQUE NOT NULL,
                 status TEXT DEFAULT 'pending'
             )
         """)
+        logging.info("Registrations table initialized.")
+
         conn.commit()
     except sqlite3.Error as e:
         logging.error(f"Database initialization error: {e}")
