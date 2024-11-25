@@ -4,8 +4,10 @@ import logging
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
+# Data stores for tracking users
 PENDING_USERS = {}
 APPROVED_USERS = {}
+DENIED_USERS = {}
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -29,8 +31,10 @@ def status():
         return jsonify({"status": "approved", "username": username}), 200
     elif username in PENDING_USERS:
         return jsonify({"status": "pending"}), 200
+    elif username in DENIED_USERS:
+        return jsonify({"status": "denied", "message": DENIED_USERS[username]}), 200
     else:
-        return jsonify({"status": "denied"}), 404
+        return jsonify({"status": "not_found", "message": "Username not found"}), 404
 
 @app.route('/approve', methods=['POST'])
 def approve_user():
@@ -57,6 +61,7 @@ def deny_user():
 
     if username in PENDING_USERS:
         PENDING_USERS.pop(username)
+        DENIED_USERS[username] = reason
         logging.info(f"Username {username} has been denied: {reason}")
         return jsonify({"status": "success", "message": f"Username {username} denied for reason: {reason}"}), 200
     else:
@@ -81,6 +86,7 @@ def handle_command():
             _, username, reason = parts
             if username in PENDING_USERS:
                 PENDING_USERS.pop(username)
+                DENIED_USERS[username] = reason
                 logging.info(f"Username {username} has been denied: {reason}")
             else:
                 print(f"Username {username} is not pending approval.")
