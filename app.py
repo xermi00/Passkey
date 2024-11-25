@@ -195,39 +195,12 @@ def deny_user():
     if username in PENDING_USERS:
         PENDING_USERS.pop(username)
         DENIED_USERS[username] = reason
-        logging.info(f"Username {username} has been denied: {reason}")
-        return jsonify({"status": "success", "message": f"Username {username} denied for reason: {reason}"}), 200
+        logging.info(f"Username {username} has been denied with reason: {reason}.")
+        return jsonify({"status": "success", "message": f"Username {username} denied"}), 200
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in pending list"}), 404
 
-# Administrative command handler
-def handle_command():
-    while True:
-        command = input("Enter command (/accept [username] or /deny [username] [reason]): ").strip()
-        if command.startswith("/accept"):
-            _, username = command.split(" ", 1)
-            if username in PENDING_USERS:
-                PENDING_USERS.pop(username)
-                APPROVED_USERS[username] = True
-                logging.info(f"Username {username} has been approved.")
-            else:
-                print(f"Username {username} is not pending approval.")
-        elif command.startswith("/deny"):
-            parts = command.split(" ", 2)
-            if len(parts) < 3:
-                print("Invalid /deny command. Usage: /deny [username] [reason]")
-                continue
-            _, username, reason = parts
-            if username in PENDING_USERS:
-                PENDING_USERS.pop(username)
-                DENIED_USERS[username] = reason
-                logging.info(f"Username {username} has been denied: {reason}")
-            else:
-                print(f"Username {username} is not pending approval.")
-
-if __name__ == "__main__":
-    # Initialize the database
+# Start server
+if __name__ == '__main__':
     init_db()
-    # Start the command handler in a separate thread
-    Thread(target=handle_command, daemon=True).start()
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(host='0.0.0.0', port=5000)
