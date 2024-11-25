@@ -1,24 +1,26 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import sqlite3
 import logging
 
-# Flask app setup
 app = Flask(__name__)
+CORS(app)  # Enable Cross-Origin Resource Sharing
 DB_PATH = "passkey.db"
+
 logging.basicConfig(level=logging.INFO)
 
-# Database initialization
+# Initialize the database
 def init_db():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-
-        # Create the registrations table if it doesn't exist
-        cursor.execute('''CREATE TABLE IF NOT EXISTS registrations (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            username TEXT UNIQUE NOT NULL,
-                            status TEXT DEFAULT 'pending'
-                          )''')
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT UNIQUE,
+                status TEXT,
+                reason TEXT
+            )
+        """)
         conn.commit()
     except sqlite3.Error as e:
         logging.error(f"Database initialization error: {e}")
@@ -26,93 +28,100 @@ def init_db():
         if conn:
             conn.close()
 
-# Register a username
+@app.route('/')
+def home():
+    return jsonify({"message": "Registration service is running!"})
+
 @app.route('/register', methods=['POST'])
-def register():
+def register_user():
     username = request.form.get('username')
-
-    # Validate the username
-    if not username or len(username) > 15 or ' ' in username:
-        return jsonify({"status": "failure", "message": "Invalid username"}), 400
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
 
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-
-        # Check if the username already exists
-        cursor.execute("SELECT COUNT(*) FROM registrations WHERE username = ?", (username,))
-        if cursor.fetchone()[0] > 0:
-            return jsonify({"status": "failure", "message": "Username already registered"}), 409
-
-        # Insert the new username
-        cursor.execute("INSERT INTO registrations (username) VALUES (?)", (username,))
+        cursor.execute("INSERT INTO users (username, status) VALUES (?, ?)", (username, "pending"))
         conn.commit()
-
-        # Log the registration for moderation
         logging.info(f"{username} has tried to register.")
-        return jsonify({"status": "pending", "message": f"{username} has been added for review"}), 200
+        return jsonify({"status": "success", "message": "Registration request sent."}), 200
+    except sqlite3.IntegrityError:
+        return jsonify({"status": "failure", "message": "Username already exists."}), 400
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
-        return jsonify({"status": "failure", "message": "Database error"}), 500
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
     finally:
         if conn:
             conn.close()
 
-# Moderate a registration (accept or decline)
-@app.route('/moderate', methods=['POST'])
-def moderate():
-    action = request.form.get('action')
+@app.route('/accept', methods=['POST'])
+def accept_user():
     username = request.form.get('username')
-
-    # Validate the action
-    if action not in ['accept', 'decline']:
-        return jsonify({"status": "failure", "message": "Invalid action"}), 400
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
 
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-
-        # Check if the username exists
-        cursor.execute("SELECT COUNT(*) FROM registrations WHERE username = ?", (username,))
-        if cursor.fetchone()[0] == 0:
-            return jsonify({"status": "failure", "message": "Username not found"}), 404
-
-        if action == "accept":
-            cursor.execute("UPDATE registrations SET status = 'accepted' WHERE username = ?", (username,))
-            logging.info(f"{username} has been accepted.")
-        elif action == "decline":
-            cursor.execute("DELETE FROM registrations WHERE username = ?", (username,))
-            logging.info(f"{username} has been declined.")
-
+        cursor.execute("UPDATE users SET status = 'accepted' WHERE username = ?", (username,))
+        if cursor.rowcount == 0:
+            return jsonify({"status": "failure", "message": "User not found."}), 404
         conn.commit()
-        return jsonify({"status": "success", "message": f"{username} has been {action}ed."}), 200
+        return jsonify({"status": "success", "message": "User accepted."}), 200
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
-        return jsonify({"status": "failure", "message": "Database error"}), 500
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
     finally:
         if conn:
             conn.close()
 
-# List all pending registrations
-@app.route('/pending', methods=['GET'])
-def get_pending():
+@app.route('/decline', methods=['POST'])
+def decline_user():
+    username = request.form.get('username')
+    reason = request.form.get('reason')
+    if not username or not reason:
+        return jsonify({"status": "failure", "message": "Username and reason are required."}), 400
+
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-
-        # Fetch all pending registrations
-        cursor.execute("SELECT username FROM registrations WHERE status = 'pending'")
-        pending = [row[0] for row in cursor.fetchall()]
-
-        return jsonify({"status": "success", "pending": pending}), 200
+        cursor.execute("UPDATE users SET status = 'declined', reason = ? WHERE username = ?", (reason, username))
+        if cursor.rowcount == 0:
+            return jsonify({"status": "failure", "message": "User not found."}), 404
+        conn.commit()
+        return jsonify({"status": "success", "message": "User declined."}), 200
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
-        return jsonify({"status": "failure", "message": "Database error"}), 500
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
     finally:
         if conn:
             conn.close()
 
-# Initialize the database on startup
+@app.route('/changeuser', methods=['POST'])
+def change_username():
+    current_username = request.form.get('current_username')
+    new_username = request.form.get('new_username')
+
+    if not current_username or not new_username:
+        return jsonify({"status": "failure", "message": "Current and new username are required."}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET username = ? WHERE username = ?", (new_username, current_username))
+        if cursor.rowcount == 0:
+            return jsonify({"status": "failure", "message": "User not found."}), 404
+        conn.commit()
+        return jsonify({"status": "success", "message": "Username changed successfully."}), 200
+    except sqlite3.IntegrityError:
+        return jsonify({"status": "failure", "message": "New username already exists."}), 400
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
 if __name__ == "__main__":
     init_db()
     app.run(debug=True, host="0.0.0.0", port=5000)
