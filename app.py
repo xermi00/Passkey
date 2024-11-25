@@ -142,6 +142,39 @@ def notify_admin():
     logging.info(f"Notification: {username} has tried to register.")
     return jsonify({"status": "success", "message": "Notification sent"}), 200
 
+# Process registration actions
+@app.route('/process_registration', methods=['POST'])
+def process_registration():
+    username = request.form.get('username')
+    action = request.form.get('action')  # 'accept' or 'decline'
+
+    if not username or action not in ['accept', 'decline']:
+        return jsonify({"status": "failure", "message": "Invalid username or action"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Check if the username exists
+        cursor.execute("SELECT * FROM registrations WHERE username = ?", (username,))
+        user = cursor.fetchone()
+
+        if not user:
+            return jsonify({"status": "failure", "message": "Username not found"}), 404
+
+        # Update the user's status based on the action
+        new_status = "accepted" if action == "accept" else "declined"
+        cursor.execute("UPDATE registrations SET status = ? WHERE username = ?", (new_status, username))
+        conn.commit()
+
+        return jsonify({"status": "success", "message": f"User '{username}' has been {new_status}"}), 200
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
 # Run the app
 if __name__ == "__main__":
     # Initialize the database
