@@ -10,21 +10,18 @@ DB_PATH = "passkey.db"
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 
-# Initialize the database if it doesn't exist
+# Initialize the database
 def init_db():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS passkey (
-                key TEXT
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY,
+                status TEXT,   -- "pending", "accepted", "declined"
+                elaboration TEXT
             )
         """)
-        # Insert default passkey if the table is empty
-        cursor.execute("SELECT COUNT(*) FROM passkey")
-        if cursor.fetchone()[0] == 0:
-            cursor.execute("INSERT INTO passkey (key) VALUES ('default_passkey')")
-            logging.info("Inserted default passkey.")
         conn.commit()
     except sqlite3.Error as e:
         logging.error(f"Database initialization error: {e}")
@@ -35,29 +32,32 @@ def init_db():
 # Root route
 @app.route('/')
 def home():
-    return jsonify({"message": "Passkey verification service is running!"})
+    return jsonify({"message": "Registration verification service is running!"})
 
-# Verify the passkey
-@app.route('/verify', methods=['POST'])
-def verify_passkey():
-    user_passkey = request.form.get('passkey')
+# Handle registration attempts
+@app.route('/register', methods=['POST'])
+def register_user():
+    username = request.form.get('username')
 
-    if not user_passkey:
-        return jsonify({"status": "failure", "message": "No passkey provided"}), 400
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
 
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT key FROM passkey")
-        stored_passkey = cursor.fetchone()
 
-        if stored_passkey is None:
-            return jsonify({"status": "failure", "message": "No passkey stored"}), 404
+        # Check if the user is already registered
+        cursor.execute("SELECT status FROM users WHERE username = ?", (username,))
+        user = cursor.fetchone()
 
-        if user_passkey == stored_passkey[0]:
-            return jsonify({"status": "success"}), 200
-        else:
-            return jsonify({"status": "failure", "message": "Incorrect passkey"}), 401
+        if user:
+            return jsonify({"status": "failure", "message": f"Username already {user[0]}"}), 400
+
+        # Insert new user with pending status
+        cursor.execute("INSERT INTO users (username, status) VALUES (?, 'pending')", (username,))
+        conn.commit()
+        logging.info(f"User '{username}' attempted registration.")
+        return jsonify({"status": "pending", "message": "Registration pending approval"}), 200
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
         return jsonify({"status": "failure", "message": "Database error occurred"}), 500
@@ -65,20 +65,29 @@ def verify_passkey():
         if conn:
             conn.close()
 
-# Update the passkey
-@app.route('/update', methods=['POST'])
-def update_passkey():
-    new_passkey = request.form.get('passkey')
+# Approve or decline registration
+@app.route('/review', methods=['POST'])
+def review_registration():
+    username = request.form.get('username')
+    action = request.form.get('action')  # "accept" or "decline"
+    elaboration = request.form.get('elaboration', '')
 
-    if not new_passkey:
-        return jsonify({"status": "failure", "message": "No passkey provided"}), 400
+    if not username or action not in ("accept", "decline"):
+        return jsonify({"status": "failure", "message": "Invalid input"}), 400
 
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("UPDATE passkey SET key = ?", (new_passkey,))
-        conn.commit()
-        return jsonify({"status": "success", "message": "Passkey updated successfully"}), 200
+
+        # Update the user's status
+        if action == "accept":
+            cursor.execute("UPDATE users SET status = 'accepted', elaboration = NULL WHERE username = ?", (username,))
+            conn.commit()
+            return jsonify({"status": "success", "message": "User accepted"}), 200
+        elif action == "decline":
+            cursor.execute("UPDATE users SET status = 'declined', elaboration = ? WHERE username = ?", (elaboration, username))
+            conn.commit()
+            return jsonify({"status": "success", "message": "User declined"}), 200
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
         return jsonify({"status": "failure", "message": "Database error occurred"}), 500
@@ -87,6 +96,5 @@ def update_passkey():
             conn.close()
 
 if __name__ == "__main__":
-    # Initialize the database
     init_db()
     app.run(debug=True, host="0.0.0.0", port=5000)
