@@ -9,11 +9,26 @@ DB_PATH = "passkey.db"
 
 logging.basicConfig(level=logging.INFO)
 
-
+# Initialize the database
 def init_db():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+
+        # Create passkey table if it doesn't exist
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS passkey (
+                key TEXT
+            )
+        """)
+
+        # Insert an initial passkey if the table is empty
+        cursor.execute("SELECT COUNT(*) FROM passkey")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("INSERT INTO passkey (key) VALUES ('default_passkey')")
+            logging.info("Inserted default passkey.")
+
+        # Create users table if it doesn't exist
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT UNIQUE,
@@ -22,12 +37,12 @@ def init_db():
             )
         """)
         conn.commit()
+        logging.info("Users table initialized successfully.")
     except sqlite3.Error as e:
         logging.error(f"Database initialization error: {e}")
     finally:
         if conn:
             conn.close()
-
 
 @app.route('/register', methods=['POST'])
 def register_user():
@@ -51,7 +66,6 @@ def register_user():
         if conn:
             conn.close()
 
-
 @app.route('/commands', methods=['POST'])
 def handle_commands():
     command = request.form.get('command')
@@ -61,37 +75,14 @@ def handle_commands():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+
+        # Command handling logic
         if command.startswith("/accept"):
-            _, username = command.split()
-            cursor.execute("UPDATE users SET status = 'accepted', reason = NULL WHERE username = ?", (username,))
-            if cursor.rowcount > 0:
-                conn.commit()
-                return jsonify({"status": "success", "message": f"{username} accepted."}), 200
-            else:
-                return jsonify({"status": "failure", "message": f"{username} not found."}), 404
-
+            return handle_accept(command, cursor, conn)
         elif command.startswith("/decline"):
-            _, username = command.split()
-            reason = request.form.get('reason')
-            if not reason:
-                return jsonify({"status": "failure", "message": "Decline reason required."}), 400
-            cursor.execute("UPDATE users SET status = 'declined', reason = ? WHERE username = ?", (reason, username))
-            if cursor.rowcount > 0:
-                conn.commit()
-                return jsonify({"status": "success", "message": f"{username} declined."}), 200
-            else:
-                return jsonify({"status": "failure", "message": f"{username} not found."}), 404
-
+            return handle_decline(command, cursor, conn)
         elif command.startswith("/changeuser"):
-            _, old_username, new_username = command.split()
-            if len(new_username) > 15 or " " in new_username:
-                return jsonify({"status": "failure", "message": "Invalid new username"}), 400
-            cursor.execute("UPDATE users SET username = ? WHERE username = ?", (new_username, old_username))
-            if cursor.rowcount > 0:
-                conn.commit()
-                return jsonify({"status": "success", "message": f"Username changed to {new_username}."}), 200
-            else:
-                return jsonify({"status": "failure", "message": f"{old_username} not found."}), 404
+            return handle_changeuser(command, cursor, conn)
         else:
             return jsonify({"status": "failure", "message": "Unknown command"}), 400
     except sqlite3.Error as e:
@@ -101,6 +92,37 @@ def handle_commands():
         if conn:
             conn.close()
 
+def handle_accept(command, cursor, conn):
+    _, username = command.split()
+    cursor.execute("UPDATE users SET status = 'accepted', reason = NULL WHERE username = ?", (username,))
+    if cursor.rowcount > 0:
+        conn.commit()
+        return jsonify({"status": "success", "message": f"{username} accepted."}), 200
+    else:
+        return jsonify({"status": "failure", "message": f"{username} not found."}), 404
+
+def handle_decline(command, cursor, conn):
+    _, username = command.split()
+    reason = request.form.get('reason')
+    if not reason:
+        return jsonify({"status": "failure", "message": "Decline reason required."}), 400
+    cursor.execute("UPDATE users SET status = 'declined', reason = ? WHERE username = ?", (reason, username))
+    if cursor.rowcount > 0:
+        conn.commit()
+        return jsonify({"status": "success", "message": f"{username} declined."}), 200
+    else:
+        return jsonify({"status": "failure", "message": f"{username} not found."}), 404
+
+def handle_changeuser(command, cursor, conn):
+    _, old_username, new_username = command.split()
+    if len(new_username) > 15 or " " in new_username:
+        return jsonify({"status": "failure", "message": "Invalid new username"}), 400
+    cursor.execute("UPDATE users SET username = ? WHERE username = ?", (new_username, old_username))
+    if cursor.rowcount > 0:
+        conn.commit()
+        return jsonify({"status": "success", "message": f"Username changed to {new_username}."}), 200
+    else:
+        return jsonify({"status": "failure", "message": f"{old_username} not found."}), 404
 
 if __name__ == "__main__":
     init_db()
