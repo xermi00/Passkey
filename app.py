@@ -1,14 +1,98 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
+import sqlite3
 import logging
+from threading import Thread
 
 app = Flask(__name__)
+CORS(app)  # Enable Cross-Origin Resource Sharing
 logging.basicConfig(level=logging.INFO)
+
+# Database path
+DB_PATH = "passkey.db"
 
 # Data stores for tracking users
 PENDING_USERS = {}
 APPROVED_USERS = {}
 DENIED_USERS = {}
 
+# Initialize the database if it doesn't exist
+def init_db():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS passkey (
+                key TEXT
+            )
+        """)
+        # Insert default passkey if the table is empty
+        cursor.execute("SELECT COUNT(*) FROM passkey")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("INSERT INTO passkey (key) VALUES ('default_passkey')")
+            logging.info("Inserted default passkey.")
+        conn.commit()
+    except sqlite3.Error as e:
+        logging.error(f"Database initialization error: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+# Root route
+@app.route('/')
+def home():
+    return jsonify({"message": "Service is running!"})
+
+# Passkey verification
+@app.route('/verify', methods=['POST'])
+def verify_passkey():
+    user_passkey = request.form.get('passkey')
+
+    if not user_passkey:
+        return jsonify({"status": "failure", "message": "No passkey provided"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT key FROM passkey")
+        stored_passkey = cursor.fetchone()
+
+        if stored_passkey is None:
+            return jsonify({"status": "failure", "message": "No passkey stored"}), 404
+
+        if user_passkey == stored_passkey[0]:
+            return jsonify({"status": "success"}), 200
+        else:
+            return jsonify({"status": "failure", "message": "Incorrect passkey"}), 401
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# Passkey update
+@app.route('/update', methods=['POST'])
+def update_passkey():
+    new_passkey = request.form.get('passkey')
+
+    if not new_passkey:
+        return jsonify({"status": "failure", "message": "No passkey provided"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE passkey SET key = ?", (new_passkey,))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Passkey updated successfully"}), 200
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# Register a new user
 @app.route('/register', methods=['POST'])
 def register():
     username = request.form.get('username')
@@ -23,6 +107,7 @@ def register():
     PENDING_USERS[username] = "Pending"
     return jsonify({"status": "success", "message": "Username submitted for approval"}), 200
 
+# Check user status
 @app.route('/status', methods=['GET'])
 def status():
     username = request.args.get('username')
@@ -36,6 +121,7 @@ def status():
     else:
         return jsonify({"status": "not_found", "message": "Username not found"}), 404
 
+# Approve a user
 @app.route('/approve', methods=['POST'])
 def approve_user():
     username = request.form.get('username')
@@ -51,6 +137,7 @@ def approve_user():
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in pending list"}), 404
 
+# Deny a user
 @app.route('/deny', methods=['POST'])
 def deny_user():
     username = request.form.get('username')
@@ -67,6 +154,7 @@ def deny_user():
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in pending list"}), 404
 
+# Administrative command handler
 def handle_command():
     while True:
         command = input("Enter command (/accept [username] or /deny [username] [reason]): ").strip()
@@ -92,6 +180,8 @@ def handle_command():
                 print(f"Username {username} is not pending approval.")
 
 if __name__ == "__main__":
-    from threading import Thread
+    # Initialize the database
+    init_db()
+    # Start the command handler in a separate thread
     Thread(target=handle_command, daemon=True).start()
     app.run(debug=True, host="0.0.0.0", port=5000)
