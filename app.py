@@ -32,6 +32,36 @@ def status():
     else:
         return jsonify({"status": "denied"}), 404
 
+@app.route('/approve', methods=['POST'])
+def approve_user():
+    username = request.form.get('username')
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if username in PENDING_USERS:
+        PENDING_USERS.pop(username)
+        APPROVED_USERS[username] = True
+        logging.info(f"Username {username} has been approved.")
+        return jsonify({"status": "success", "message": f"Username {username} approved"}), 200
+    else:
+        return jsonify({"status": "failure", "message": f"Username {username} not found in pending list"}), 404
+
+@app.route('/deny', methods=['POST'])
+def deny_user():
+    username = request.form.get('username')
+    reason = request.form.get('reason', "No reason provided")
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if username in PENDING_USERS:
+        PENDING_USERS.pop(username)
+        logging.info(f"Username {username} has been denied: {reason}")
+        return jsonify({"status": "success", "message": f"Username {username} denied for reason: {reason}"}), 200
+    else:
+        return jsonify({"status": "failure", "message": f"Username {username} not found in pending list"}), 404
+
 def handle_command():
     while True:
         command = input("Enter command (/accept [username] or /deny [username] [reason]): ").strip()
