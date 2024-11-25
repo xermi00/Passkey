@@ -12,23 +12,27 @@ DB_PATH = "passkey.db"
 # Set up logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+
 def get_db_connection():
     """Connect to the database."""
     conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row  # Enable named column access
+    conn.row_factory = sqlite3.Row
     return conn
+
 
 @app.route('/register', methods=['POST'])
 def register_user():
     """Register a new user."""
     try:
         data = request.get_json()
-        username = data.get('username')
-
-        if not username:
+        if not data or 'username' not in data:
             return jsonify({"error": "Username is required."}), 400
 
-        # Insert into registrations table
+        username = data['username'].strip()
+
+        if not username or len(username) > 15 or " " in username:
+            return jsonify({"error": "Invalid username. Ensure it is non-empty, no spaces, and <= 15 characters."}), 400
+
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
@@ -47,17 +51,16 @@ def register_user():
         logging.error(f"Database error: {e}")
         return jsonify({"error": "Internal server error."}), 500
 
+
 @app.route('/accept', methods=['POST'])
 def accept_user():
     """Accept a user's registration."""
     try:
         data = request.get_json()
-        username = data.get('username')
-
-        if not username:
+        if not data or 'username' not in data:
             return jsonify({"error": "Username is required."}), 400
 
-        # Update status to 'accepted'
+        username = data['username'].strip()
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
@@ -79,20 +82,21 @@ def accept_user():
         logging.error(f"Database error: {e}")
         return jsonify({"error": "Internal server error."}), 500
 
+
 @app.route('/decline', methods=['POST'])
 def decline_user():
     """Decline a user's registration."""
     try:
         data = request.get_json()
-        username = data.get('username')
-        reason = data.get('reason', 'No reason provided.')
+        if not data or 'username' not in data or 'reason' not in data:
+            return jsonify({"error": "Username and reason are required."}), 400
 
-        if not username:
-            return jsonify({"error": "Username is required."}), 400
+        username = data['username'].strip()
+        reason = data['reason'].strip()
 
-        # Insert into decline_reasons table
         conn = get_db_connection()
         cursor = conn.cursor()
+
         cursor.execute("""
             DELETE FROM registrations
             WHERE username = ?
@@ -114,6 +118,7 @@ def decline_user():
     except Exception as e:
         logging.error(f"Database error: {e}")
         return jsonify({"error": "Internal server error."}), 500
+
 
 if __name__ == '__main__':
     if not os.path.exists(DB_PATH):
