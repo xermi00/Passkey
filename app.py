@@ -4,40 +4,24 @@ import sqlite3
 import logging
 
 app = Flask(__name__)
-CORS(app)  # Enable Cross-Origin Resource Sharing
-DB_PATH = "passkey.db"
+CORS(app)
+DB_PATH = "users.db"
 
-# Set up logging
+# Logging configuration
 logging.basicConfig(level=logging.INFO)
 
-# Initialize the database if it doesn't exist
+# Initialize the database
 def init_db():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
-        # Create passkey table if it doesn't exist
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS passkey (
-                key TEXT
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY,
+                status TEXT,
+                reason TEXT
             )
         """)
-        
-        # Insert default passkey if the table is empty
-        cursor.execute("SELECT COUNT(*) FROM passkey")
-        if cursor.fetchone()[0] == 0:
-            cursor.execute("INSERT INTO passkey (key) VALUES ('default_passkey')")
-            logging.info("Inserted default passkey.")
-        
-        # Create registrations table if it doesn't exist
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS registrations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                status TEXT DEFAULT 'pending'
-            )
-        """)
-        
         conn.commit()
     except sqlite3.Error as e:
         logging.error(f"Database initialization error: {e}")
@@ -45,77 +29,28 @@ def init_db():
         if conn:
             conn.close()
 
-# Root route
-@app.route('/')
-def home():
-    return jsonify({"message": "Registration and passkey verification service is running!"})
-
-# Verify the passkey
-@app.route('/verify', methods=['POST'])
-def verify_passkey():
-    user_passkey = request.form.get('passkey')
-
-    if not user_passkey:
-        return jsonify({"status": "failure", "message": "No passkey provided"}), 400
-
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT key FROM passkey")
-        stored_passkey = cursor.fetchone()
-
-        if stored_passkey is None:
-            return jsonify({"status": "failure", "message": "No passkey stored"}), 404
-
-        if user_passkey == stored_passkey[0]:
-            return jsonify({"status": "success"}), 200
-        else:
-            return jsonify({"status": "failure", "message": "Incorrect passkey"}), 401
-    except sqlite3.Error as e:
-        logging.error(f"Database error: {e}")
-        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
-    finally:
-        if conn:
-            conn.close()
-
-# Update the passkey
-@app.route('/update', methods=['POST'])
-def update_passkey():
-    new_passkey = request.form.get('passkey')
-
-    if not new_passkey:
-        return jsonify({"status": "failure", "message": "No passkey provided"}), 400
-
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE passkey SET key = ?", (new_passkey,))
-        conn.commit()
-        return jsonify({"status": "success", "message": "Passkey updated successfully"}), 200
-    except sqlite3.Error as e:
-        logging.error(f"Database error: {e}")
-        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
-    finally:
-        if conn:
-            conn.close()
-
-# Register a new user
 @app.route('/register', methods=['POST'])
 def register_user():
     username = request.form.get('username')
-
     if not username:
-        return jsonify({"status": "failure", "message": "No username provided"}), 400
+        return jsonify({"status": "failure", "message": "Username not provided"}), 400
 
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO registrations (username) VALUES (?)", (username,))
+        # Check if username already exists
+        cursor.execute("SELECT status FROM users WHERE username = ?", (username,))
+        existing_user = cursor.fetchone()
+
+        if existing_user:
+            if existing_user[0] == "accepted":
+                return jsonify({"status": "failure", "message": "User already registered"}), 400
+            return jsonify({"status": "failure", "message": "User registration pending or declined"}), 400
+
+        cursor.execute("INSERT INTO users (username, status) VALUES (?, 'pending')", (username,))
         conn.commit()
-        logging.info(f"New registration received for username: {username}")
-        return jsonify({"status": "success", "message": "Registration submitted for review"}), 201
-    except sqlite3.IntegrityError:
-        return jsonify({"status": "failure", "message": "Username already exists"}), 409
+        logging.info(f"Registration attempt by username: {username}")
+        return jsonify({"status": "success", "message": "Registration request submitted"}), 200
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
         return jsonify({"status": "failure", "message": "Database error occurred"}), 500
@@ -123,24 +58,57 @@ def register_user():
         if conn:
             conn.close()
 
-# Check the review status of a user
-@app.route('/review_status', methods=['GET'])
-def review_status():
-    username = request.args.get('username')
+@app.route('/manage_user', methods=['POST'])
+def manage_user():
+    username = request.form.get('username')
+    action = request.form.get('action')
+    reason = request.form.get('reason', '')
 
-    if not username:
-        return jsonify({"status": "failure", "message": "No username provided"}), 400
+    if not username or not action:
+        return jsonify({"status": "failure", "message": "Invalid parameters"}), 400
 
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT status FROM registrations WHERE username = ?", (username,))
-        result = cursor.fetchone()
+        cursor.execute("SELECT status FROM users WHERE username = ?", (username,))
+        user = cursor.fetchone()
 
-        if result:
-            return jsonify({"status": "success", "review_status": result[0]}), 200
+        if not user:
+            return jsonify({"status": "failure", "message": "User not found"}), 404
+
+        if action == "accept":
+            cursor.execute("UPDATE users SET status = 'accepted', reason = NULL WHERE username = ?", (username,))
+        elif action == "decline":
+            cursor.execute("UPDATE users SET status = 'declined', reason = ? WHERE username = ?", (reason, username))
         else:
-            return jsonify({"status": "failure", "message": "Username not found"}), 404
+            return jsonify({"status": "failure", "message": "Invalid action"}), 400
+
+        conn.commit()
+        return jsonify({"status": "success", "message": f"User {action}ed"}), 200
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/status', methods=['POST'])
+def check_status():
+    username = request.form.get('username')
+
+    if not username:
+        return jsonify({"status": "failure", "message": "Username not provided"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT status, reason FROM users WHERE username = ?", (username,))
+        user = cursor.fetchone()
+
+        if not user:
+            return jsonify({"status": "failure", "message": "User not found"}), 404
+
+        return jsonify({"status": "success", "user_status": user[0], "reason": user[1] or ""}), 200
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
         return jsonify({"status": "failure", "message": "Database error occurred"}), 500
@@ -149,6 +117,5 @@ def review_status():
             conn.close()
 
 if __name__ == "__main__":
-    # Initialize the database
     init_db()
     app.run(debug=True, host="0.0.0.0", port=5000)
