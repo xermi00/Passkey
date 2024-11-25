@@ -2,24 +2,15 @@ import sqlite3
 
 DB_PATH = "passkey.db"
 
-# Initialize the database and create necessary tables
+# Initialize the database and create the passkey table
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # Create the passkey table if it doesn't exist
+    # Create the table if it doesn't exist
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS passkey (
             key TEXT
-        )
-    """)
-
-    # Create the users table if it doesn't exist
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            username TEXT UNIQUE,
-            status TEXT,
-            reason TEXT
         )
     """)
 
