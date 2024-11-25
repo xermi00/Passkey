@@ -91,6 +91,29 @@ def ban_user():
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in approved list"}), 404
 
+# Delete a specific username from approved list
+@app.route('/delusername', methods=['POST'])
+def delete_username():
+    username = request.form.get('username')
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if username in APPROVED_USERS:
+        APPROVED_USERS.pop(username)
+        logging.info(f"Username {username} has been deleted from approved list.")
+        return jsonify({"status": "success", "message": f"Username {username} deleted"}), 200
+    else:
+        return jsonify({"status": "failure", "message": f"Username {username} not found in approved list"}), 404
+
+# Delete all usernames from the approved list
+@app.route('/dellallusernames', methods=['POST'])
+def delete_all_usernames():
+    APPROVED_USERS.clear()
+    logging.info("All usernames have been deleted from the approved list.")
+    return jsonify({"status": "success", "message": "All approved usernames have been deleted"}), 200
+
+
 # Unban a user
 @app.route('/unban', methods=['POST'])
 def unban_user():
