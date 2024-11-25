@@ -5,11 +5,10 @@ import logging
 
 app = Flask(__name__)
 CORS(app)  # Enable Cross-Origin Resource Sharing
-
 DB_PATH = "passkey.db"
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO)
 
 # Initialize the database if it doesn't exist
 def init_db():
@@ -17,10 +16,10 @@ def init_db():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Create the passkey table
+        # Create passkey table if it doesn't exist
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS passkey (
-                key TEXT NOT NULL
+                key TEXT
             )
         """)
         logging.info("Passkey table initialized.")
@@ -31,7 +30,7 @@ def init_db():
             cursor.execute("INSERT INTO passkey (key) VALUES ('default_passkey')")
             logging.info("Inserted default passkey.")
 
-        # Create the registrations table
+        # Create registrations table if it doesn't exist
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS registrations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,27 +101,27 @@ def update_passkey():
         if conn:
             conn.close()
 
-# Register a user
+# Register a new username
 @app.route('/register', methods=['POST'])
-def register_user():
+def register_username():
     username = request.form.get('username')
 
     if not username:
-        return jsonify({"status": "failure", "message": "Username is required"}), 400
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if len(username) > 15 or ' ' in username:
+        return jsonify({"status": "failure", "message": "Invalid username. Ensure it is no more than 15 characters and contains no spaces."}), 400
 
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Check if the username already exists
-        cursor.execute("SELECT * FROM registrations WHERE username = ?", (username,))
-        if cursor.fetchone():
-            return jsonify({"status": "failure", "message": "Username already exists"}), 409
-
-        # Insert the new username with a pending status
-        cursor.execute("INSERT INTO registrations (username, status) VALUES (?, 'pending')", (username,))
+        cursor.execute("INSERT INTO registrations (username) VALUES (?)", (username,))
         conn.commit()
-        return jsonify({"status": "success", "message": "Registration request submitted"}), 200
+        logging.info(f"[{username}] has tried to register.")
+        return jsonify({"status": "success", "message": "Registration request sent."}), 200
+    except sqlite3.IntegrityError:
+        return jsonify({"status": "failure", "message": "Username already registered or pending approval."}), 400
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
         return jsonify({"status": "failure", "message": "Database error occurred"}), 500
@@ -130,44 +129,27 @@ def register_user():
         if conn:
             conn.close()
 
-# Notify about registration
+# Notify player of registration status
 @app.route('/notify', methods=['POST'])
-def notify_admin():
+def notify_status():
     username = request.form.get('username')
 
     if not username:
-        return jsonify({"status": "failure", "message": "Username is required"}), 400
-
-    # Simulate notification (e.g., send to admin console, email, etc.)
-    logging.info(f"Notification: {username} has tried to register.")
-    return jsonify({"status": "success", "message": "Notification sent"}), 200
-
-# Process registration actions
-@app.route('/process_registration', methods=['POST'])
-def process_registration():
-    username = request.form.get('username')
-    action = request.form.get('action')  # 'accept' or 'decline'
-
-    if not username or action not in ['accept', 'decline']:
-        return jsonify({"status": "failure", "message": "Invalid username or action"}), 400
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
 
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Check if the username exists
-        cursor.execute("SELECT * FROM registrations WHERE username = ?", (username,))
-        user = cursor.fetchone()
+        cursor.execute("SELECT status FROM registrations WHERE username = ?", (username,))
+        result = cursor.fetchone()
 
-        if not user:
-            return jsonify({"status": "failure", "message": "Username not found"}), 404
+        if result is None:
+            return jsonify({"status": "failure", "message": "No registration found for the provided username"}), 404
 
-        # Update the user's status based on the action
-        new_status = "accepted" if action == "accept" else "declined"
-        cursor.execute("UPDATE registrations SET status = ? WHERE username = ?", (new_status, username))
-        conn.commit()
-
-        return jsonify({"status": "success", "message": f"User '{username}' has been {new_status}"}), 200
+        status = result[0]
+        logging.info(f"Notification for [{username}]: {status}.")
+        return jsonify({"status": "success", "registration_status": status}), 200
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
         return jsonify({"status": "failure", "message": "Database error occurred"}), 500
@@ -175,7 +157,45 @@ def process_registration():
         if conn:
             conn.close()
 
-# Run the app
+# Admin command to accept or decline registration
+@app.route('/admin', methods=['POST'])
+def admin_command():
+    command = request.form.get('command')
+
+    if not command:
+        return jsonify({"status": "failure", "message": "No command provided"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        if command.startswith('/accept '):
+            username = command.split('/accept ')[1]
+            cursor.execute("UPDATE registrations SET status = 'accepted' WHERE username = ?", (username,))
+            if cursor.rowcount == 0:
+                return jsonify({"status": "failure", "message": f"No pending registration found for username: {username}"}), 404
+            conn.commit()
+            logging.info(f"Registration for [{username}] has been accepted.")
+            return jsonify({"status": "success", "message": f"Accepted registration for {username}"}), 200
+
+        elif command.startswith('/decline '):
+            username = command.split('/decline ')[1]
+            cursor.execute("DELETE FROM registrations WHERE username = ?", (username,))
+            if cursor.rowcount == 0:
+                return jsonify({"status": "failure", "message": f"No pending registration found for username: {username}"}), 404
+            conn.commit()
+            logging.info(f"Registration for [{username}] has been declined.")
+            return jsonify({"status": "success", "message": f"Declined registration for {username}"}), 200
+
+        else:
+            return jsonify({"status": "failure", "message": "Invalid command."}), 400
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
 if __name__ == "__main__":
     # Initialize the database
     init_db()
