@@ -1,29 +1,29 @@
 import sqlite3
 import logging
 
-DB_PATH = "passkey.db"
+DB_PATH = "passkey.db"  # Path to your SQLite database
 
-# Initialize the database and create the necessary tables
 def init_db():
     try:
+        # This will create the database file if it doesn't exist
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
         # Create passkey table if it doesn't exist
-        cursor.execute("""
+        cursor.execute(""" 
             CREATE TABLE IF NOT EXISTS passkey (
                 key TEXT
             )
         """)
 
-        # Insert an initial passkey if the table is empty
+        # Insert a default passkey if no passkey exists
         cursor.execute("SELECT COUNT(*) FROM passkey")
         if cursor.fetchone()[0] == 0:
             cursor.execute("INSERT INTO passkey (key) VALUES ('default_passkey')")
-            print("Inserted default passkey.")
+            logging.info("Inserted default passkey.")
 
         # Create users table if it doesn't exist
-        cursor.execute("""
+        cursor.execute(""" 
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT UNIQUE,
                 status TEXT,
@@ -43,4 +43,4 @@ def init_db():
 
 if __name__ == "__main__":
     init_db()
-    print("Database initialized.")
+    logging.info("Database created or already exists.")
