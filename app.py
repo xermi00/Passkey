@@ -24,12 +24,20 @@ def get_db_connection():
 def register_user():
     """Register a new user."""
     try:
-        data = request.get_json()
+        # Check Content-Type and parse accordingly
+        if request.content_type == 'application/json':
+            data = request.get_json()
+        elif request.content_type == 'application/x-www-form-urlencoded':
+            data = request.form
+        else:
+            return jsonify({"error": "Unsupported Content-Type."}), 415
+
         if not data or 'username' not in data:
             return jsonify({"error": "Username is required."}), 400
 
         username = data['username'].strip()
 
+        # Validate username
         if not username or len(username) > 15 or " " in username:
             return jsonify({"error": "Invalid username. Ensure it is non-empty, no spaces, and <= 15 characters."}), 400
 
@@ -50,7 +58,6 @@ def register_user():
     except Exception as e:
         logging.error(f"Database error: {e}")
         return jsonify({"error": "Internal server error."}), 500
-
 
 @app.route('/accept', methods=['POST'])
 def accept_user():
