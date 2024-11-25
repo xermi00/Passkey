@@ -4,17 +4,17 @@ import logging
 DB_PATH = "passkey.db"
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 def init_db():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Create passkey table if it doesn't exist
+        # Create the passkey table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS passkey (
-                key TEXT
+                key TEXT NOT NULL
             )
         """)
         logging.info("Passkey table initialized.")
@@ -25,7 +25,7 @@ def init_db():
             cursor.execute("INSERT INTO passkey (key) VALUES ('default_passkey')")
             logging.info("Inserted default passkey.")
 
-        # Create registrations table if it doesn't exist
+        # Create the registrations table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS registrations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
