@@ -27,8 +27,6 @@ def register_user():
         # Check Content-Type and parse accordingly
         if request.content_type == 'application/json':
             data = request.get_json()
-        elif request.content_type == 'application/x-www-form-urlencoded':
-            data = request.form
         else:
             return jsonify({"error": "Unsupported Content-Type."}), 415
 
