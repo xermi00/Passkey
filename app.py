@@ -127,7 +127,7 @@ def approve_user():
 # Administrative command handler
 def handle_command():
     while True:
-        command = input("Enter command (/accept [username] or /deny [username] [reason]): ").strip()
+        command = input("Enter command (/accept [username], /deny [username] [reason], /ban [username], /unban [username]): ").strip()
         if command.startswith("/accept"):
             _, username = command.split(" ", 1)
             if username in PENDING_USERS:
@@ -150,6 +150,22 @@ def handle_command():
                 logging.info(f"Username {username} has been denied: {reason}")
             else:
                 print(f"Username {username} is not pending approval.")
+        elif command.startswith("/ban"):
+            _, username = command.split(" ", 1)
+            if username in APPROVED_USERS or username in USER_STATUSES:
+                BANNED_USERS[username] = True
+                update_user_status(username, "banned")
+                logging.info(f"Username {username} has been banned.")
+            else:
+                print(f"Username {username} is not in approved list.")
+        elif command.startswith("/unban"):
+            _, username = command.split(" ", 1)
+            if username in BANNED_USERS:
+                BANNED_USERS.pop(username, None)
+                update_user_status(username, "unbanned")
+                logging.info(f"Username {username} has been unbanned.")
+            else:
+                print(f"Username {username} is not in banned list.")
 
 if __name__ == "__main__":
     init_db()
