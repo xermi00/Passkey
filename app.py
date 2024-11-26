@@ -18,7 +18,6 @@ APPROVED_USERS = {}
 DENIED_USERS = {}
 USER_STATUSES = {}  # Tracks user status ("unbanned", "banned")
 BANNED_USERS = {}
-UNBAN_NOTIFICATIONS = {}  # Stores unban notifications to be fetched during the check
 
 # Initialize the database if it doesn't exist
 def init_db():
@@ -73,13 +72,11 @@ def unban_user():
     if username in BANNED_USERS:
         BANNED_USERS.pop(username, None)
         update_user_status(username, "unbanned")
-        UNBAN_NOTIFICATIONS[username] = True  # Log the unban notification
-        logging.info(f"Notification: {username} has been unbanned.")
         return jsonify({"status": "success", "message": f"Username {username} unbanned"}), 200
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in banned list"}), 404
 
-# Status Check (includes ban/unban logic)
+# Status Check (updated to include ban/unban logic)
 @app.route('/status', methods=['GET'])
 def status():
     username = request.args.get('username')
@@ -92,26 +89,10 @@ def status():
         return jsonify({"status": "pending"}), 200
     elif username in DENIED_USERS:
         return jsonify({"status": "denied", "message": DENIED_USERS[username]}), 200
-    elif username in UNBAN_NOTIFICATIONS:  # Check for unban notifications
-        return jsonify({"status": "unbanned", "username": username}), 200
     else:
         return jsonify({"status": "not_found", "message": "Username not found"}), 404
 
-@app.route('/fetch-unban-notification', methods=['GET'])
-def fetch_unban_notification():
-    username = request.args.get('username')
-    
-    if not username:
-        return jsonify({"status": "failure", "message": "No username provided"}), 400
-    
-    if username in APPROVED_USERS and username not in BANNED_USERS:
-        return jsonify({"status": "success", "message": f"User {username} is unbanned."}), 200
-    elif username in BANNED_USERS:
-        return jsonify({"status": "failure", "message": f"User {username} is still banned."}), 200
-    else:
-        return jsonify({"status": "failure", "message": "User not found"}), 404
-
-# Register a user
+# Other Routes (Register, Approve, Deny, etc.)
 @app.route('/register', methods=['POST'])
 def register():
     username = request.form.get('username')
@@ -143,10 +124,25 @@ def approve_user():
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in pending list"}), 404
 
+@app.route('/notify_unban', methods=['POST'])
+def notify_unban():
+    username = request.form.get('username')
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if username in BANNED_USERS:
+        BANNED_USERS.pop(username, None)
+        USER_STATUSES[username] = "unbanned"
+        logging.info(f"Notification: {username} has been unbanned.")
+        return jsonify({"status": "success", "message": f"Notification sent for {username} unban"}), 200
+    else:
+        return jsonify({"status": "failure", "message": "Username not found in banned list"}), 404
+
 # Administrative command handler
 def handle_command():
     while True:
-        command = input("Enter command (/accept [username], /deny [username] [reason], /ban [username], /unban [username]): ").strip()
+        command = input("Enter command (/accept [username] or /deny [username] [reason]): ").strip()
         if command.startswith("/accept"):
             _, username = command.split(" ", 1)
             if username in PENDING_USERS:
@@ -169,23 +165,6 @@ def handle_command():
                 logging.info(f"Username {username} has been denied: {reason}")
             else:
                 print(f"Username {username} is not pending approval.")
-        elif command.startswith("/ban"):
-            _, username = command.split(" ", 1)
-            if username in APPROVED_USERS or username in USER_STATUSES:
-                BANNED_USERS[username] = True
-                update_user_status(username, "banned")
-                logging.info(f"Username {username} has been banned.")
-            else:
-                print(f"Username {username} not found in approved users.")
-        elif command.startswith("/unban"):
-            _, username = command.split(" ", 1)
-            if username in BANNED_USERS:
-                BANNED_USERS.pop(username, None)
-                update_user_status(username, "unbanned")
-                UNBAN_NOTIFICATIONS[username] = True
-                logging.info(f"Notification: {username} has been unbanned.")
-            else:
-                print(f"Username {username} is not banned.")
 
 if __name__ == "__main__":
     init_db()
