@@ -1,5 +1,3 @@
-
-
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import sqlite3
@@ -24,9 +22,16 @@ def init_db():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+        # Initialize passkey table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS passkey (
                 key TEXT
+            )
+        """)
+        # Initialize banned_users table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS banned_users (
+                username TEXT PRIMARY KEY
             )
         """)
         # Insert default passkey if the table is empty
@@ -37,6 +42,21 @@ def init_db():
         conn.commit()
     except sqlite3.Error as e:
         logging.error(f"Database initialization error: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+# Load banned users from the database
+def load_banned_users():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT username FROM banned_users")
+        for row in cursor.fetchall():
+            BANNED_USERS[row[0]] = True
+        logging.info("Loaded banned users from database.")
+    except sqlite3.Error as e:
+        logging.error(f"Database error during ban load: {e}")
     finally:
         if conn:
             conn.close()
@@ -56,9 +76,20 @@ def ban_user():
 
     if username in APPROVED_USERS:
         APPROVED_USERS.pop(username)
-        BANNED_USERS[username] = True
-        logging.info(f"Username {username} has been banned.")
-        return jsonify({"status": "success", "message": f"Username {username} banned"}), 200
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR IGNORE INTO banned_users (username) VALUES (?)", (username,))
+            conn.commit()
+            BANNED_USERS[username] = True
+            logging.info(f"Username {username} has been banned.")
+            return jsonify({"status": "success", "message": f"Username {username} banned"}), 200
+        except sqlite3.Error as e:
+            logging.error(f"Database error during ban: {e}")
+            return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+        finally:
+            if conn:
+                conn.close()
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in approved list"}), 404
 
@@ -71,11 +102,37 @@ def unban_user():
         return jsonify({"status": "failure", "message": "No username provided"}), 400
 
     if username in BANNED_USERS:
-        BANNED_USERS.pop(username)
-        logging.info(f"Username {username} has been unbanned.")
-        return jsonify({"status": "success", "message": f"Username {username} unbanned"}), 200
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM banned_users WHERE username = ?", (username,))
+            conn.commit()
+            BANNED_USERS.pop(username)
+            logging.info(f"Username {username} has been unbanned.")
+            return jsonify({"status": "success", "message": f"Username {username} unbanned"}), 200
+        except sqlite3.Error as e:
+            logging.error(f"Database error during unban: {e}")
+            return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+        finally:
+            if conn:
+                conn.close()
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in banned list"}), 404
+
+# Check ban status
+@app.route('/banstatus', methods=['GET'])
+def get_ban_status():
+    username = request.args.get('username')
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if username in BANNED_USERS:
+        return jsonify({"status": "banned"}), 200
+    elif username in APPROVED_USERS:
+        return jsonify({"status": "approved"}), 200
+    else:
+        return jsonify({"status": "not_found", "message": "Username not found"}), 404
 
 # Kick a user
 @app.route('/kick', methods=['POST'])
@@ -113,7 +170,7 @@ def verify_passkey():
         else:
             return jsonify({"status": "failure", "message": "Incorrect passkey"}), 401
     except sqlite3.Error as e:
-        logging.error(f"Database error: {e}")
+        logging.error(f"Database error during passkey verification: {e}")
         return jsonify({"status": "failure", "message": "Database error occurred"}), 500
     finally:
         if conn:
@@ -134,13 +191,13 @@ def update_passkey():
         conn.commit()
         return jsonify({"status": "success", "message": "Passkey updated successfully"}), 200
     except sqlite3.Error as e:
-        logging.error(f"Database error: {e}")
+        logging.error(f"Database error during passkey update: {e}")
         return jsonify({"status": "failure", "message": "Database error occurred"}), 500
     finally:
         if conn:
             conn.close()
 
-# Register a new user
+# Other user management endpoints remain unchanged
 @app.route('/register', methods=['POST'])
 def register():
     username = request.form.get('username')
@@ -169,17 +226,16 @@ def status():
     else:
         return jsonify({"status": "not_found", "message": "Username not found"}), 404
 
-# Approve a user
 @app.route('/approve', methods=['POST'])
 def approve_user():
     username = request.form.get('username')
-
     if not username:
         return jsonify({"status": "failure", "message": "No username provided"}), 400
-
     if username in PENDING_USERS:
         PENDING_USERS.pop(username)
         APPROVED_USERS[username] = True
+        return jsonify({"status": "success"}), 200
+
         logging.info(f"Username {username} has been approved.")
         return jsonify({"status": "success", "message": f"Username {username} approved"}), 200
     else:
@@ -205,7 +261,7 @@ def deny_user():
 # Administrative command handler
 def handle_command():
     while True:
-        command = input("Enter command (/accept [username] or /deny [username] [reason]): ").strip()
+        command = input("Enter command (/accept [username] or /deny [username] [reason] or /ban [username] or /unban [username]): ").strip()
         if command.startswith("/accept"):
             _, username = command.split(" ", 1)
             if username in PENDING_USERS:
@@ -226,10 +282,50 @@ def handle_command():
                 logging.info(f"Username {username} has been denied: {reason}")
             else:
                 print(f"Username {username} is not pending approval.")
+        elif command.startswith("/ban"):
+            _, username = command.split(" ", 1)
+            if username in APPROVED_USERS:
+                APPROVED_USERS.pop(username)
+                try:
+                    conn = sqlite3.connect(DB_PATH)
+                    cursor = conn.cursor()
+                    cursor.execute("INSERT OR IGNORE INTO banned_users (username) VALUES (?)", (username,))
+                    conn.commit()
+                    BANNED_USERS[username] = True
+                    logging.info(f"Username {username} has been banned.")
+                except sqlite3.Error as e:
+                    logging.error(f"Database error during manual ban: {e}")
+                finally:
+                    if conn:
+                        conn.close()
+            else:
+                print(f"Username {username} not found in approved list.")
+        elif command.startswith("/unban"):
+            _, username = command.split(" ", 1)
+            if username in BANNED_USERS:
+                try:
+                    conn = sqlite3.connect(DB_PATH)
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM banned_users WHERE username = ?", (username,))
+                    conn.commit()
+                    BANNED_USERS.pop(username)
+                    logging.info(f"Username {username} has been unbanned.")
+                except sqlite3.Error as e:
+                    logging.error(f"Database error during manual unban: {e}")
+                finally:
+                    if conn:
+                        conn.close()
+            else:
+                print(f"Username {username} not found in banned list.")
+        else:
+            print("Invalid command. Available commands: /accept, /deny, /ban, /unban.")
 
 if __name__ == "__main__":
-    # Initialize the database
+    # Initialize the database and load banned users
     init_db()
+    load_banned_users()
     # Start the command handler in a separate thread
     Thread(target=handle_command, daemon=True).start()
     app.run(debug=True, host="0.0.0.0", port=5000)
+
+
