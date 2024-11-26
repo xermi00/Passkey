@@ -1,3 +1,4 @@
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import sqlite3
@@ -124,21 +125,6 @@ def approve_user():
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in pending list"}), 404
 
-@app.route('/notify_unban', methods=['POST'])
-def notify_unban():
-    username = request.form.get('username')
-
-    if not username:
-        return jsonify({"status": "failure", "message": "No username provided"}), 400
-
-    if username in BANNED_USERS:
-        BANNED_USERS.pop(username, None)
-        USER_STATUSES[username] = "unbanned"
-        logging.info(f"Notification: {username} has been unbanned.")
-        return jsonify({"status": "success", "message": f"Notification sent for {username} unban"}), 200
-    else:
-        return jsonify({"status": "failure", "message": "Username not found in banned list"}), 404
-
 # Administrative command handler
 def handle_command():
     while True:
@@ -170,3 +156,65 @@ if __name__ == "__main__":
     init_db()
     Thread(target=handle_command, daemon=True).start()
     app.run(debug=True, host="0.0.0.0", port=5000)
+
+## Flask Script (Server-Side)
+
+@echo off
+setlocal enabledelayedexpansion
+
+:loop
+echo Enter command (/accept [username], /deny [username] [reason], /ban [username], /unban [username]):
+set /p command=
+
+rem Check for /accept command
+if /i "!command:~0,7!"=="/accept" (
+    set username=!command:~8!
+    if not defined username (
+        echo Error: Username cannot be empty. Please try again.
+    ) else (
+        curl -X POST https://passkey-9557.onrender.com/approve -d "username=!username!"
+        echo Username !username! approved.
+    )
+    
+rem Check for /deny command
+) else if /i "!command:~0,5!"=="/deny" (
+    for /f "tokens=2*" %%A in ("!command!") do (
+        set username=%%A
+        set reason=%%B
+    )
+    if not defined username (
+        echo Error: Username cannot be empty. Please try again.
+    ) else if not defined reason (
+        echo Error: Reason for denial cannot be empty. Please try again.
+    ) else (
+        curl -X POST https://passkey-9557.onrender.com/deny -d "username=!username!" -d "reason=!reason!"
+        echo Username !username! denied with reason: "!reason!".
+    )
+    
+rem Check for /ban command
+) else if /i "!command:~0,4!"=="/ban" (
+    set username=!command:~5!
+    if not defined username (
+        echo Error: Username cannot be empty. Please try again.
+    ) else (
+        curl -X POST https://passkey-9557.onrender.com/ban -d "username=!username!"
+        echo Username !username! banned.
+    )
+    
+rem Check for /unban command
+) else if /i "!command:~0,6!"=="/unban" (
+    set username=!command:~7!
+    if not defined username (
+        echo Error: Username cannot be empty. Please try again.
+    ) else (
+        curl -X POST https://passkey-9557.onrender.com/unban -d "username=!username!"
+        echo Username !username! unbanned.
+    )
+    
+rem Handle invalid commands
+) else (
+    echo Invalid command. Please try again.
+)
+
+pause
+goto loop
