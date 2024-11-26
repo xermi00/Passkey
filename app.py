@@ -79,14 +79,18 @@ def unban_user():
 def status():
     username = request.args.get('username')
 
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    # Check status and banned/unbanned state
     if username in APPROVED_USERS:
-        # Add banned/unbanned information
-        status_info = {"status": "approved", "banned": USER_STATUS.get(username, "unbanned")}
-        return jsonify(status_info), 200
+        banned_status = USER_STATUS.get(username, "unbanned")
+        return jsonify({"status": "approved", "banned": banned_status}), 200
     elif username in PENDING_USERS:
         return jsonify({"status": "pending"}), 200
     elif username in DENIED_USERS:
-        return jsonify({"status": "denied", "message": DENIED_USERS[username]}), 200
+        reason = DENIED_USERS[username]
+        return jsonify({"status": "denied", "message": reason}), 200
     else:
         return jsonify({"status": "not_found", "message": "Username not found"}), 404
 
