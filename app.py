@@ -97,17 +97,19 @@ def status():
     else:
         return jsonify({"status": "not_found", "message": "Username not found"}), 404
 
-# Fetch unban notifications for a username
 @app.route('/fetch-unban-notification', methods=['GET'])
 def fetch_unban_notification():
     username = request.args.get('username')
-
-    if username in UNBAN_NOTIFICATIONS:
-        # Remove the notification once it is fetched
-        UNBAN_NOTIFICATIONS.pop(username, None)
-        return jsonify({"status": "unbanned", "message": f"Username {username} has been unbanned."}), 200
+    
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+    
+    if username in APPROVED_USERS and username not in BANNED_USERS:
+        return jsonify({"status": "success", "message": f"User {username} is unbanned."}), 200
+    elif username in BANNED_USERS:
+        return jsonify({"status": "failure", "message": f"User {username} is still banned."}), 200
     else:
-        return jsonify({"status": "not_found", "message": f"No unban notification for {username}."}), 404
+        return jsonify({"status": "failure", "message": "User not found"}), 404
 
 # Register a user
 @app.route('/register', methods=['POST'])
