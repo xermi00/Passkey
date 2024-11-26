@@ -3,7 +3,6 @@ from flask_cors import CORS
 import sqlite3
 import logging
 from threading import Thread
-import time
 
 app = Flask(__name__)
 CORS(app)  # Enable Cross-Origin Resource Sharing
@@ -76,23 +75,70 @@ def unban_user():
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in banned list"}), 404
 
-# Status Check (updated to include ban/unban logic)
-@app.route('/status', methods=['GET'])
-def status():
-    username = request.args.get('username')
+# Kick a user
+@app.route('/kick', methods=['POST'])
+def kick_user():
+    username = request.form.get('username')
 
-    if username in BANNED_USERS:
-        return jsonify({"status": "banned", "username": username}), 200
-    elif username in APPROVED_USERS:
-        return jsonify({"status": "approved", "username": username}), 200
-    elif username in PENDING_USERS:
-        return jsonify({"status": "pending"}), 200
-    elif username in DENIED_USERS:
-        return jsonify({"status": "denied", "message": DENIED_USERS[username]}), 200
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if username in APPROVED_USERS:
+        logging.info(f"Username {username} has been kicked.")
+        return jsonify({"status": "success", "message": f"Username {username} kicked"}), 200
     else:
-        return jsonify({"status": "not_found", "message": "Username not found"}), 404
+        return jsonify({"status": "failure", "message": f"Username {username} not found in approved list"}), 404
 
-# Other Routes (Register, Approve, Deny, etc.)
+# Passkey verification
+@app.route('/verify', methods=['POST'])
+def verify_passkey():
+    user_passkey = request.form.get('passkey')
+
+    if not user_passkey:
+        return jsonify({"status": "failure", "message": "No passkey provided"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT key FROM passkey")
+        stored_passkey = cursor.fetchone()
+
+        if stored_passkey is None:
+            return jsonify({"status": "failure", "message": "No passkey stored"}), 404
+
+        if user_passkey == stored_passkey[0]:
+            return jsonify({"status": "success"}), 200
+        else:
+            return jsonify({"status": "failure", "message": "Incorrect passkey"}), 401
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# Passkey update
+@app.route('/update', methods=['POST'])
+def update_passkey():
+    new_passkey = request.form.get('passkey')
+
+    if not new_passkey:
+        return jsonify({"status": "failure", "message": "No passkey provided"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE passkey SET key = ?", (new_passkey,))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Passkey updated successfully"}), 200
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# Register a new user
 @app.route('/register', methods=['POST'])
 def register():
     username = request.form.get('username')
@@ -108,6 +154,23 @@ def register():
     update_user_status(username, "unbanned")
     return jsonify({"status": "success", "message": "Username submitted for approval"}), 200
 
+# Check user status
+@app.route('/status', methods=['GET'])
+def status():
+    username = request.args.get('username')
+
+    if username in BANNED_USERS:
+        return jsonify({"status": "banned", "username": username}), 200
+    elif username in APPROVED_USERS:
+        return jsonify({"status": "approved", "username": username}), 200
+    elif username in PENDING_USERS:
+        return jsonify({"status": "pending"}), 200
+    elif username in DENIED_USERS:
+        return jsonify({"status": "denied", "message": DENIED_USERS[username]}), 200
+    else:
+        return jsonify({"status": "not_found", "message": "Username not found"}), 404
+
+# Approve a user
 @app.route('/approve', methods=['POST'])
 def approve_user():
     username = request.form.get('username')
@@ -121,6 +184,24 @@ def approve_user():
         update_user_status(username, "unbanned")
         logging.info(f"Username {username} has been approved.")
         return jsonify({"status": "success", "message": f"Username {username} approved"}), 200
+    else:
+        return jsonify({"status": "failure", "message": f"Username {username} not found in pending list"}), 404
+
+# Deny a user
+@app.route('/deny', methods=['POST'])
+def deny_user():
+    username = request.form.get('username')
+    reason = request.form.get('reason', "No reason provided")
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if username in PENDING_USERS:
+        PENDING_USERS.pop(username, None)
+        DENIED_USERS[username] = reason
+        update_user_status(username, "denied")
+        logging.info(f"Username {username} has been denied: {reason}")
+        return jsonify({"status": "success", "message": f"Username {username} denied for reason: {reason}"}), 200
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in pending list"}), 404
 
@@ -150,8 +231,11 @@ def handle_command():
                 logging.info(f"Username {username} has been denied: {reason}")
             else:
                 print(f"Username {username} is not pending approval.")
+        else:
+            print(f"Invalid command: {command}")
 
+# Run the Flask app
 if __name__ == "__main__":
     init_db()
     Thread(target=handle_command, daemon=True).start()
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=False, port=5000)
