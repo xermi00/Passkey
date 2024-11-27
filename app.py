@@ -3,6 +3,7 @@ from flask_cors import CORS
 import sqlite3
 import logging
 from threading import Thread
+import time
 
 app = Flask(__name__)
 CORS(app)  # Enable Cross-Origin Resource Sharing
@@ -17,21 +18,14 @@ APPROVED_USERS = {}
 DENIED_USERS = {}
 USER_STATUSES = {}  # Tracks user status ("unbanned", "banned")
 BANNED_USERS = {}
+UNBAN_LOGS = []  # Logs for unbanned users
 
 # Initialize the database if it doesn't exist
 def init_db():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        # Create passkey table if it doesn't exist
         cursor.execute("""CREATE TABLE IF NOT EXISTS passkey (key TEXT)""")
-        # Create user status table if it doesn't exist
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_status (
-                username TEXT PRIMARY KEY,
-                status TEXT
-            )
-        """)
         cursor.execute("SELECT COUNT(*) FROM passkey")
         if cursor.fetchone()[0] == 0:
             cursor.execute("INSERT INTO passkey (key) VALUES ('default_passkey')")
@@ -43,62 +37,21 @@ def init_db():
         if conn:
             conn.close()
 
-# Utility to update user status in memory and the database
+# Utility to update user status
 def update_user_status(username, status):
     USER_STATUSES[username] = status
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO user_status (username, status)
-            VALUES (?, ?)
-            ON CONFLICT(username) DO UPDATE SET status = excluded.status
-        """, (username, status))
-        conn.commit()
-    except sqlite3.Error as e:
-        logging.error(f"Database error while updating status: {e}")
-    finally:
-        if conn:
-            conn.close()
     logging.info(f"Status for {username} updated to {status}.")
 
-# Load user statuses from the database
-def load_user_statuses():
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT username, status FROM user_status")
-        rows = cursor.fetchall()
-        for username, status in rows:
-            USER_STATUSES[username] = status
-    except sqlite3.Error as e:
-        logging.error(f"Database error while loading statuses: {e}")
-    finally:
-        if conn:
-            conn.close()
+# Utility to log unban actions
+def log_unban_action(username):
+    if username not in UNBAN_LOGS:
+        UNBAN_LOGS.append(username)
+        logging.info(f"Unban action logged for {username}.")
 
 # Root route
 @app.route('/')
 def home():
     return jsonify({"message": "Service is running!"})
-
-# Unban detection route
-@app.route('/unban-detection', methods=['GET'])
-def unban_detection():
-    username = request.args.get('username')
-
-    if not username:
-        return jsonify({"status": "failure", "message": "No username provided"}), 400
-
-    status = USER_STATUSES.get(username, None)
-    if status == "unbanned":
-        return jsonify({"status": "unbanned", "username": username}), 200
-    elif status == "banned":
-        return jsonify({"status": "banned", "username": username}), 200
-    else:
-        return jsonify({"status": "unknown", "message": "Username not found"}), 404
-
-# Existing routes for ban, unban, register, etc.
 
 # Ban a user
 @app.route('/ban', methods=['POST'])
@@ -126,13 +79,179 @@ def unban_user():
     if username in BANNED_USERS:
         BANNED_USERS.pop(username, None)
         update_user_status(username, "unbanned")
+        log_unban_action(username)  # Log the unban action
         return jsonify({"status": "success", "message": f"Username {username} unbanned"}), 200
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in banned list"}), 404
 
-# Flask application startup
-if __name__ == "__main__":
+# Kick a user
+@app.route('/kick', methods=['POST'])
+def kick_user():
+    username = request.form.get('username')
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if username in APPROVED_USERS:
+        logging.info(f"Username {username} has been kicked.")
+        return jsonify({"status": "success", "message": f"Username {username} kicked"}), 200
+    else:
+        return jsonify({"status": "failure", "message": f"Username {username} not found in approved list"}), 404
+
+# Passkey verification
+@app.route('/verify', methods=['POST'])
+def verify_passkey():
+    user_passkey = request.form.get('passkey')
+
+    if not user_passkey:
+        return jsonify({"status": "failure", "message": "No passkey provided"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT key FROM passkey")
+        stored_passkey = cursor.fetchone()
+
+        if stored_passkey is None:
+            return jsonify({"status": "failure", "message": "No passkey stored"}), 404
+
+        if user_passkey == stored_passkey[0]:
+            return jsonify({"status": "success"}), 200
+        else:
+            return jsonify({"status": "failure", "message": "Incorrect passkey"}), 401
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# Passkey update
+@app.route('/update', methods=['POST'])
+def update_passkey():
+    new_passkey = request.form.get('passkey')
+
+    if not new_passkey:
+        return jsonify({"status": "failure", "message": "No passkey provided"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE passkey SET key = ?", (new_passkey,))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Passkey updated successfully"}), 200
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# Register a new user
+@app.route('/register', methods=['POST'])
+def register():
+    username = request.form.get('username')
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if " " in username or len(username) > 15:
+        return jsonify({"status": "failure", "message": "Invalid username format"}), 400
+
+    logging.info(f"Username {username} has attempted to access the project.")
+    PENDING_USERS[username] = "Pending"
+    update_user_status(username, "unbanned")
+    return jsonify({"status": "success", "message": "Username submitted for approval"}), 200
+
+# Check user status
+@app.route('/status', methods=['GET'])
+def status():
+    username = request.args.get('username')
+
+    if username in BANNED_USERS:
+        return jsonify({"status": "banned", "username": username}), 200
+    elif username in APPROVED_USERS:
+        return jsonify({"status": "approved", "username": username}), 200
+    elif username in PENDING_USERS:
+        return jsonify({"status": "pending"}), 200
+    elif username in DENIED_USERS:
+        return jsonify({"status": "denied", "message": DENIED_USERS[username]}), 200
+    else:
+        return jsonify({"status": "not_found", "message": "Username not found"}), 404
+
+# Endpoint for Unity to fetch unban logs
+@app.route('/unban_logs', methods=['GET'])
+def unban_logs():
+    return jsonify({"unbanned_users": UNBAN_LOGS}), 200
+
+# Approve a user
+@app.route('/approve', methods=['POST'])
+def approve_user():
+    username = request.form.get('username')
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if username in PENDING_USERS:
+        PENDING_USERS.pop(username, None)
+        APPROVED_USERS[username] = True
+        update_user_status(username, "unbanned")
+        logging.info(f"Username {username} has been approved.")
+        return jsonify({"status": "success", "message": f"Username {username} approved"}), 200
+    else:
+        return jsonify({"status": "failure", "message": f"Username {username} not found in pending list"}), 404
+
+# Deny a user
+@app.route('/deny', methods=['POST'])
+def deny_user():
+    username = request.form.get('username')
+    reason = request.form.get('reason', "No reason provided")
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if username in PENDING_USERS:
+        PENDING_USERS.pop(username, None)
+        DENIED_USERS[username] = reason
+        update_user_status(username, "denied")
+        logging.info(f"Username {username} has been denied: {reason}")
+        return jsonify({"status": "success", "message": f"Username {username} denied for reason: {reason}"}), 200
+    else:
+        return jsonify({"status": "failure", "message": f"Username {username} not found in pending list"}), 404
+
+# Administrative command handler
+def handle_command():
+    while True:
+        command = input("Enter command (/accept [username] or /deny [username] [reason]): ").strip()
+        if command.startswith("/accept"):
+            _, username = command.split(" ", 1)
+            if username in PENDING_USERS:
+                PENDING_USERS.pop(username, None)
+                APPROVED_USERS[username] = True
+                update_user_status(username, "unbanned")
+                logging.info(f"Username {username} has been approved.")
+            else:
+                logging.warning(f"Username {username} not found in pending list.")
+        elif command.startswith("/deny"):
+            parts = command.split(" ", 2)
+            if len(parts) < 3:
+                logging.warning("Invalid command format. Use: /deny [username] [reason]")
+                continue
+            _, username, reason = parts
+            if username in PENDING_USERS:
+                PENDING_USERS.pop(username, None)
+                DENIED_USERS[username] = reason
+                update_user_status(username, "denied")
+                logging.info(f"Username {username} has been denied: {reason}")
+            else:
+                logging.warning(f"Username {username} not found in pending list.")
+        else:
+            logging.warning("Invalid command.")
+
+# Start the admin thread
+admin_thread = Thread(target=handle_command, daemon=True)
+admin_thread.start()
+
+if __name__ == '__main__':
     init_db()
-    load_user_statuses()
-    Thread(target=handle_command, daemon=True).start()
-    app.run(debug=False, port=5000)
+    app.run(host="0.0.0.0", port=5000)
