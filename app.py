@@ -3,11 +3,10 @@ from flask_cors import CORS
 import sqlite3
 import logging
 from threading import Thread
-from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)  # Enable Cross-Origin Resource Sharing
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, filename="flask_server.log", filemode="a", format="%(asctime)s - %(message)s")
 
 # Database path
 DB_PATH = "passkey.db"
@@ -18,9 +17,6 @@ APPROVED_USERS = {}
 DENIED_USERS = {}
 USER_STATUSES = {}  # Tracks user status ("unbanned", "banned")
 BANNED_USERS = {}
-
-# Logs of banned and unbanned actions
-ACTION_LOGS = []
 
 # Initialize the database if it doesn't exist
 def init_db():
@@ -42,17 +38,7 @@ def init_db():
 # Utility to update user status
 def update_user_status(username, status):
     USER_STATUSES[username] = status
-    log_action(username, status)
     logging.info(f"Status for {username} updated to {status}.")
-
-# Utility to log actions
-def log_action(username, action):
-    ACTION_LOGS.append({"username": username, "action": action, "timestamp": datetime.utcnow().isoformat()})
-    logging.info(f"Action logged: {username} -> {action}")
-
-# Utility to get recent logs for a username
-def get_recent_logs(username):
-    return [log for log in ACTION_LOGS if log["username"] == username]
 
 # Root route
 @app.route('/')
@@ -70,6 +56,7 @@ def ban_user():
     if username in APPROVED_USERS or username in USER_STATUSES:
         BANNED_USERS[username] = True
         update_user_status(username, "banned")
+        log_action(username, "banned")
         return jsonify({"status": "success", "message": f"Username {username} banned"}), 200
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in approved list"}), 404
@@ -85,9 +72,15 @@ def unban_user():
     if username in BANNED_USERS:
         BANNED_USERS.pop(username, None)
         update_user_status(username, "unbanned")
+        log_action(username, "unbanned")
         return jsonify({"status": "success", "message": f"Username {username} unbanned"}), 200
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in banned list"}), 404
+
+# Log user actions (ban/unban)
+def log_action(username, action):
+    with open("flask_server.log", "a") as log_file:
+        log_file.write(f"{username} was {action}\n")
 
 # Kick a user
 @app.route('/kick', methods=['POST'])
@@ -131,6 +124,43 @@ def verify_passkey():
         if conn:
             conn.close()
 
+# Passkey update
+@app.route('/update', methods=['POST'])
+def update_passkey():
+    new_passkey = request.form.get('passkey')
+
+    if not new_passkey:
+        return jsonify({"status": "failure", "message": "No passkey provided"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE passkey SET key = ?", (new_passkey,))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Passkey updated successfully"}), 200
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# Register a new user
+@app.route('/register', methods=['POST'])
+def register():
+    username = request.form.get('username')
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if " " in username or len(username) > 15:
+        return jsonify({"status": "failure", "message": "Invalid username format"}), 400
+
+    logging.info(f"Username {username} has attempted to access the project.")
+    PENDING_USERS[username] = "Pending"
+    update_user_status(username, "unbanned")
+    return jsonify({"status": "success", "message": "Username submitted for approval"}), 200
+
 # Check user status
 @app.route('/status', methods=['GET'])
 def status():
@@ -147,16 +177,40 @@ def status():
     else:
         return jsonify({"status": "not_found", "message": "Username not found"}), 404
 
-# Fetch logs for a specific user (used by Unity for unban check)
-@app.route('/logs', methods=['GET'])
-def fetch_logs():
-    username = request.args.get('username')
+# Approve a user
+@app.route('/approve', methods=['POST'])
+def approve_user():
+    username = request.form.get('username')
 
     if not username:
         return jsonify({"status": "failure", "message": "No username provided"}), 400
 
-    logs = get_recent_logs(username)
-    return jsonify({"status": "success", "logs": logs}), 200
+    if username in PENDING_USERS:
+        PENDING_USERS.pop(username, None)
+        APPROVED_USERS[username] = True
+        update_user_status(username, "unbanned")
+        logging.info(f"Username {username} has been approved.")
+        return jsonify({"status": "success", "message": f"Username {username} approved"}), 200
+    else:
+        return jsonify({"status": "failure", "message": f"Username {username} not found in pending list"}), 404
+
+# Deny a user
+@app.route('/deny', methods=['POST'])
+def deny_user():
+    username = request.form.get('username')
+    reason = request.form.get('reason', "No reason provided")
+
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
+
+    if username in PENDING_USERS:
+        PENDING_USERS.pop(username, None)
+        DENIED_USERS[username] = reason
+        update_user_status(username, "denied")
+        logging.info(f"Username {username} has been denied: {reason}")
+        return jsonify({"status": "success", "message": f"Username {username} denied for reason: {reason}"}), 200
+    else:
+        return jsonify({"status": "failure", "message": f"Username {username} not found in pending list"}), 404
 
 # Administrative command handler
 def handle_command():
@@ -174,7 +228,7 @@ def handle_command():
         elif command.startswith("/deny"):
             parts = command.split(" ", 2)
             if len(parts) < 3:
-                print("Invalid /deny command. Usage: /deny [username] [reason]")
+                print("Invalid /deny command. Use /deny [username] [reason].")
                 continue
             _, username, reason = parts
             if username in PENDING_USERS:
@@ -185,10 +239,10 @@ def handle_command():
             else:
                 print(f"Username {username} is not pending approval.")
         else:
-            print(f"Invalid command: {command}")
+            print("Invalid command.")
 
-# Run the Flask app
-if __name__ == "__main__":
+if __name__ == '__main__':
     init_db()
-    Thread(target=handle_command, daemon=True).start()
-    app.run(debug=False, port=5000)
+    thread = Thread(target=handle_command, daemon=True)
+    thread.start()
+    app.run(host='0.0.0.0', port=5000)
