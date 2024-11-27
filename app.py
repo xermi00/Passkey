@@ -3,7 +3,7 @@ from flask_cors import CORS
 import sqlite3
 import logging
 from threading import Thread
-import time
+import os
 
 app = Flask(__name__)
 CORS(app)  # Enable Cross-Origin Resource Sharing
@@ -18,7 +18,9 @@ APPROVED_USERS = {}
 DENIED_USERS = {}
 USER_STATUSES = {}  # Tracks user status ("unbanned", "banned")
 BANNED_USERS = {}
-UNBAN_LOGS = []  # Logs for unbanned users
+
+# Render.com log file path (or API if applicable)
+RENDER_LOG_PATH = "/path/to/render/logs.txt"  # Replace with actual path or API URL
 
 # Initialize the database if it doesn't exist
 def init_db():
@@ -42,11 +44,23 @@ def update_user_status(username, status):
     USER_STATUSES[username] = status
     logging.info(f"Status for {username} updated to {status}.")
 
-# Utility to log unban actions
-def log_unban_action(username):
-    if username not in UNBAN_LOGS:
-        UNBAN_LOGS.append(username)
-        logging.info(f"Unban action logged for {username}.")
+# Check unban status from Render logs
+def check_unban_status():
+    logging.info("Unban detection thread started.")
+    while True:
+        try:
+            # Simulating log file or API reading
+            if os.path.exists(RENDER_LOG_PATH):
+                with open(RENDER_LOG_PATH, "r") as log_file:
+                    logs = log_file.readlines()
+
+                for username in list(BANNED_USERS.keys()):
+                    if any(f"{username} unbanned" in log for log in logs):
+                        logging.info(f"Detected unban for {username} in logs.")
+                        BANNED_USERS.pop(username, None)
+                        update_user_status(username, "unbanned")
+        except Exception as e:
+            logging.error(f"Error while checking unban status: {e}")
 
 # Root route
 @app.route('/')
@@ -79,7 +93,6 @@ def unban_user():
     if username in BANNED_USERS:
         BANNED_USERS.pop(username, None)
         update_user_status(username, "unbanned")
-        log_unban_action(username)  # Log the unban action
         return jsonify({"status": "success", "message": f"Username {username} unbanned"}), 200
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in banned list"}), 404
@@ -179,11 +192,6 @@ def status():
     else:
         return jsonify({"status": "not_found", "message": "Username not found"}), 404
 
-# Endpoint for Unity to fetch unban logs
-@app.route('/unban_logs', methods=['GET'])
-def unban_logs():
-    return jsonify({"unbanned_users": UNBAN_LOGS}), 200
-
 # Approve a user
 @app.route('/approve', methods=['POST'])
 def approve_user():
@@ -222,36 +230,32 @@ def deny_user():
 # Administrative command handler
 def handle_command():
     while True:
-        command = input("Enter command (/accept [username] or /deny [username] [reason]): ").strip()
+        command = input("Enter command (/accept [username] or /deny [username]): ").strip()
         if command.startswith("/accept"):
-            _, username = command.split(" ", 1)
+            _, username = command.split(" ")
             if username in PENDING_USERS:
                 PENDING_USERS.pop(username, None)
                 APPROVED_USERS[username] = True
-                update_user_status(username, "unbanned")
                 logging.info(f"Username {username} has been approved.")
             else:
-                logging.warning(f"Username {username} not found in pending list.")
+                logging.info(f"Username {username} not found in pending list.")
         elif command.startswith("/deny"):
-            parts = command.split(" ", 2)
-            if len(parts) < 3:
-                logging.warning("Invalid command format. Use: /deny [username] [reason]")
-                continue
-            _, username, reason = parts
+            _, username = command.split(" ")
             if username in PENDING_USERS:
                 PENDING_USERS.pop(username, None)
-                DENIED_USERS[username] = reason
-                update_user_status(username, "denied")
-                logging.info(f"Username {username} has been denied: {reason}")
+                DENIED_USERS[username] = "No reason provided"
+                logging.info(f"Username {username} has been denied.")
             else:
-                logging.warning(f"Username {username} not found in pending list.")
+                logging.info(f"Username {username} not found in pending list.")
         else:
-            logging.warning("Invalid command.")
-
-# Start the admin thread
-admin_thread = Thread(target=handle_command, daemon=True)
-admin_thread.start()
+            logging.info("Unknown command.")
 
 if __name__ == '__main__':
     init_db()
-    app.run(host="0.0.0.0", port=5000)
+    # Start the unban detection thread
+    unban_thread = Thread(target=check_unban_status, daemon=True)
+    unban_thread.start()
+    # Start the administrative command thread
+    admin_thread = Thread(target=handle_command, daemon=True)
+    admin_thread.start()
+    app.run(host='0.0.0.0', port=5000)
