@@ -111,8 +111,6 @@ def kick_user():
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in approved list"}), 404
 
-# Passkey verification
-@app.route('/verify', methods=['POST'])
 @app.route('/verify', methods=['GET', 'POST'])
 def verify_passkey():
     try:
@@ -139,17 +137,13 @@ def verify_passkey():
             cursor.execute("SELECT key FROM passkey")
             stored_passkey = cursor.fetchone()
 
-            if stored_passkey is None:
-                return jsonify({"status": "failure", "message": "No passkey stored"}), 404
-
-            if user_passkey == stored_passkey[0]:
-                return jsonify({"status": "success"}), 200
+            if stored_passkey and stored_passkey[0] == user_passkey:
+                return jsonify({"status": "success", "message": "Passkey verified"}), 200
             else:
-                return jsonify({"status": "failure", "message": "Incorrect passkey"}), 401
-
+                return jsonify({"status": "failure", "message": "Invalid passkey"}), 401
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
-        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+        return jsonify({"status": "failure", "message": "Server error"}), 500
     finally:
         if conn:
             conn.close()
