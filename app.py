@@ -44,6 +44,26 @@ def update_user_status(username, status):
     USER_STATUSES[username] = status
     logging.info(f"Status for {username} updated to {status}.")
 
+# Check the current passkey status
+@app.route('/passkey_status', methods=['GET'])
+def passkey_status():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT key FROM passkey")
+        stored_passkey = cursor.fetchone()
+
+        if stored_passkey:
+            return jsonify({"status": "success", "passkey": stored_passkey[0]}), 200
+        else:
+            return jsonify({"status": "failure", "message": "No passkey found"}), 404
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+            
 # Check unban status from Render logs
 def check_unban_status():
     logging.info("Unban detection thread started.")
