@@ -160,27 +160,6 @@ def update_passkey():
         if conn:
             conn.close()
 
-# Fetch the current passkey
-@app.route('/get-passkey', methods=['GET'])
-def get_passkey():
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT key FROM passkey")
-        stored_passkey = cursor.fetchone()
-
-        if stored_passkey:
-            return jsonify({"status": "success", "passkey": stored_passkey[0]}), 200
-        else:
-            return jsonify({"status": "failure", "message": "No passkey found"}), 404
-    except sqlite3.Error as e:
-        logging.error(f"Database error: {e}")
-        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
-    finally:
-        if conn:
-            conn.close()
-
-
 # Register a new user
 @app.route('/register', methods=['POST'])
 def register():
@@ -270,6 +249,26 @@ def handle_command():
                 logging.info(f"Username {username} not found in pending list.")
         else:
             logging.info("Unknown command.")
+
+@app.route('/check_passkey', methods=['GET'])
+def check_passkey():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT key FROM passkey")
+        stored_passkey = cursor.fetchone()
+
+        if stored_passkey:
+            return jsonify({"status": "success", "message": stored_passkey[0]}), 200
+        else:
+            return jsonify({"status": "failure", "message": "No passkey found"}), 404
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
 
 if __name__ == '__main__':
     init_db()
