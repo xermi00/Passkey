@@ -227,6 +227,27 @@ def deny_user():
     else:
         return jsonify({"status": "failure", "message": f"Username {username} not found in pending list"}), 404
 
+# Check the current passkey status
+@app.route('/passkey_status', methods=['GET'])
+def passkey_status():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT key FROM passkey")
+        stored_passkey = cursor.fetchone()
+
+        if stored_passkey:
+            return jsonify({"status": "success", "passkey": stored_passkey[0]}), 200
+        else:
+            return jsonify({"status": "failure", "message": "No passkey found"}), 404
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
 # Administrative command handler
 def handle_command():
     while True:
