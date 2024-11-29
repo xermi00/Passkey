@@ -113,25 +113,40 @@ def kick_user():
 
 # Passkey verification
 @app.route('/verify', methods=['POST'])
+@app.route('/verify', methods=['GET', 'POST'])
 def verify_passkey():
-    user_passkey = request.form.get('passkey')
-
-    if not user_passkey:
-        return jsonify({"status": "failure", "message": "No passkey provided"}), 400
-
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT key FROM passkey")
-        stored_passkey = cursor.fetchone()
 
-        if stored_passkey is None:
-            return jsonify({"status": "failure", "message": "No passkey stored"}), 404
+        if request.method == 'GET':
+            # Handle GET request: Retrieve the stored passkey
+            cursor.execute("SELECT key FROM passkey")
+            stored_passkey = cursor.fetchone()
 
-        if user_passkey == stored_passkey[0]:
-            return jsonify({"status": "success"}), 200
-        else:
-            return jsonify({"status": "failure", "message": "Incorrect passkey"}), 401
+            if stored_passkey:
+                return jsonify({"status": "success", "passkey": stored_passkey[0]}), 200
+            else:
+                return jsonify({"status": "failure", "message": "No passkey stored"}), 404
+
+        elif request.method == 'POST':
+            # Handle POST request: Verify provided passkey
+            user_passkey = request.form.get('passkey')
+
+            if not user_passkey:
+                return jsonify({"status": "failure", "message": "No passkey provided"}), 400
+
+            cursor.execute("SELECT key FROM passkey")
+            stored_passkey = cursor.fetchone()
+
+            if stored_passkey is None:
+                return jsonify({"status": "failure", "message": "No passkey stored"}), 404
+
+            if user_passkey == stored_passkey[0]:
+                return jsonify({"status": "success"}), 200
+            else:
+                return jsonify({"status": "failure", "message": "Incorrect passkey"}), 401
+
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
         return jsonify({"status": "failure", "message": "Database error occurred"}), 500
