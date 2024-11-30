@@ -32,7 +32,7 @@ def init_db():
 
 @app.route('/register_username', methods=['POST'])
 def register_username():
-    username = request.json.get('username')
+    username = request.form.get('username')  # Get data from form instead of JSON
     if not username or len(username) < 3 or len(username) > 15 or ' ' in username:
         return jsonify({"status": "failure", "message": "Invalid username format"}), 400
 
@@ -43,6 +43,32 @@ def register_username():
         conn.commit()
         logging.info(f"{username} has attempted a registration.")
         return jsonify({"status": "success", "message": "Username submitted for approval"}), 200
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/check_status', methods=['GET'])
+def check_status():
+    username = request.args.get('username')  # Pass username as a query parameter
+    if not username:
+        return jsonify({"status": "failure", "message": "Username required"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT status, denial_reason FROM passkey WHERE username = ?", (username,))
+        result = cursor.fetchone()
+        if result:
+            status, denial_reason = result
+            response = {"status": status}
+            if status == "denied":
+                response["reason"] = denial_reason
+            return jsonify(response), 200
+        else:
+            return jsonify({"status": "failure", "message": "Username not found"}), 404
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
         return jsonify({"status": "failure", "message": "Database error occurred"}), 500
