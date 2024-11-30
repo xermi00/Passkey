@@ -44,15 +44,6 @@ def update_user_status(username, status):
     USER_STATUSES[username] = status
     logging.info(f"Status for {username} updated to {status}.")
 
-@app.route('/server_status', methods=['GET'])
-def server_status():
-    # Simulating server status based on logs or other criteria
-    # You can replace this logic with actual state checks for Render
-    import random
-    statuses = ["Running", "Building", "In Progress", "Down"]
-    server_status = random.choice(statuses)  # Simulating dynamic status for testing
-    return jsonify({"status": server_status}), 200
-
 # Check unban status from Render logs
 def check_unban_status():
     logging.info("Unban detection thread started.")
