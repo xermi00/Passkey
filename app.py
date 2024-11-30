@@ -109,27 +109,21 @@ def check_passkey():
         if conn:
             conn.close()
 
-@app.route('/register', methods=['POST'])
-def register():
+@app.route('/update', methods=['POST'])
+def update_registration():
     username = request.form.get('username')
-    if username:
-        logging.info(f"Registration attempt: {username}")
-        return jsonify({"status": "success", "message": f"Registration attempt logged for {username}"}), 200
-    else:
-        return jsonify({"status": "failure", "message": "No username provided"}), 400
+    action = request.form.get('action')
+    reason = request.form.get('reason', '')
 
-@app.route('/accept', methods=['POST'])
-def accept():
-    username = request.form.get('username')
-    # Logic to notify Unity client (e.g., via WebSocket or direct response)
-    return jsonify({"status": "success", "message": f"Accepted {username}"}), 200
+    if action == "accept":
+        # Notify Unity client for acceptance
+        return jsonify({"status": "success", "message": f"{username} accepted"}), 200
 
-@app.route('/deny', methods=['POST'])
-def deny():
-    username = request.form.get('username')
-    reason = request.form.get('reason')
-    # Logic to notify Unity client
-    return jsonify({"status": "success", "message": f"Denied {username} for reason: {reason}"}), 200
+    elif action == "deny":
+        # Notify Unity client for denial
+        return jsonify({"status": "success", "message": f"{username} denied: {reason}"}), 200
+
+    return jsonify({"status": "failure", "message": "Invalid action"}), 400
 
 
 if __name__ == '__main__':
