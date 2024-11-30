@@ -109,22 +109,24 @@ def check_passkey():
         if conn:
             conn.close()
 
-@app.route('/update', methods=['POST'])
-def update_registration():
+@app.route('/register', methods=['POST'])
+def register():
     username = request.form.get('username')
-    action = request.form.get('action')
-    reason = request.form.get('reason', '')
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
 
-    if action == "accept":
-        # Notify Unity client for acceptance
-        return jsonify({"status": "success", "message": f"{username} accepted"}), 200
-
-    elif action == "deny":
-        # Notify Unity client for denial
-        return jsonify({"status": "success", "message": f"{username} denied: {reason}"}), 200
-
-    return jsonify({"status": "failure", "message": "Invalid action"}), 400
-
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO pending_users (username) VALUES (?)", (username,))
+        conn.commit()
+        logging.info(f"User {username} attempted registration.")
+        return jsonify({"status": "success", "message": "Registration submitted"}), 200
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+        return jsonify({"status": "failure", "message": "Server error"}), 500
+    finally:
+        conn.close()
 
 if __name__ == '__main__':
     init_db()
