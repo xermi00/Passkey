@@ -32,7 +32,8 @@ def init_db():
 
 @app.route('/register_username', methods=['POST'])
 def register_username():
-    username = request.form.get('username')  # Get data from form instead of JSON
+    username = request.form.get('username')  # Correct way to handle form data
+
     if not username or len(username) < 3 or len(username) > 15 or ' ' in username:
         return jsonify({"status": "failure", "message": "Invalid username format"}), 400
 
@@ -49,6 +50,7 @@ def register_username():
     finally:
         if conn:
             conn.close()
+
 
 @app.route('/check_status', methods=['GET'])
 def check_status():
