@@ -35,28 +35,26 @@ def register():
         return jsonify({"status": "success", "message": "Registration received"}), 200
     else:
         return jsonify({"status": "failure", "message": "No username provided"}), 400
-@app.route('/manage', methods=['POST'])
+        
+@app.route('/manage', methods=['GET', 'POST'])
 def manage_registration():
-    username = request.form.get('username')
-    action = request.form.get('action')
+    username = request.args.get('username') or request.form.get('username')
+    action = request.args.get('action') or request.form.get('action')
     reason = request.form.get('reason', '')
 
     if not username or not action:
         return jsonify({"status": "failure", "message": "Invalid data"}), 400
 
     if action == "accept":
-        # Notify Unity game to display the accepted username
-        logging.info(f"Username {username} has been accepted.")
-        # Additional logic to mark the username as accepted
+        # Logic for checking if accepted
         return jsonify({"status": "success", "message": f"{username} has been accepted."}), 200
 
     elif action == "deny":
-        # Notify Unity game with denial reason
-        logging.info(f"Username {username} has been denied. Reason: {reason}")
-        # Additional logic to mark the username as denied
-        return jsonify({"status": "success", "message": f"{username} has been denied with reason: {reason}"}), 200
+        # Logic for checking if denied
+        return jsonify({"status": "success", "message": "Your denial reason here."}), 200
 
     return jsonify({"status": "failure", "message": "Invalid action"}), 400
+
 
 
 # Root route
