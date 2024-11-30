@@ -15,22 +15,14 @@ def init_db():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        # Create passkey table if not exists
-        cursor.execute("""CREATE TABLE IF NOT EXISTS passkey (key TEXT)""")
-        # Create registration table if not exists
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS registrations (
+            CREATE TABLE IF NOT EXISTS passkey (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE,
-                status TEXT,  -- 'pending', 'accepted', 'denied'
-                reason TEXT DEFAULT NULL
+                username TEXT,
+                status TEXT DEFAULT 'pending',
+                denial_reason TEXT
             )
         """)
-        # Insert default passkey if empty
-        cursor.execute("SELECT COUNT(*) FROM passkey")
-        if cursor.fetchone()[0] == 0:
-            cursor.execute("INSERT INTO passkey (key) VALUES ('default_passkey')")
-            logging.info("Inserted default passkey.")
         conn.commit()
     except sqlite3.Error as e:
         logging.error(f"Database initialization error: {e}")
@@ -38,91 +30,70 @@ def init_db():
         if conn:
             conn.close()
 
-@app.route('/register', methods=['POST'])
-def register():
-    username = request.form.get('username')
-
+@app.route('/register_username', methods=['POST'])
+def register_username():
+    username = request.json.get('username')
     if not username or len(username) < 3 or len(username) > 15 or ' ' in username:
         return jsonify({"status": "failure", "message": "Invalid username format"}), 400
 
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        # Insert username into the registration table
-        cursor.execute("INSERT INTO registrations (username, status) VALUES (?, 'pending')", (username,))
+        cursor.execute("INSERT INTO passkey (username, status) VALUES (?, 'pending')", (username,))
         conn.commit()
-        logging.info(f"Username '{username}' has attempted a registration.")
+        logging.info(f"{username} has attempted a registration.")
         return jsonify({"status": "success", "message": "Username submitted for approval"}), 200
-    except sqlite3.IntegrityError:
-        return jsonify({"status": "failure", "message": "Username already exists"}), 409
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
-        return jsonify({"status": "failure", "message": "Server error"}), 500
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
     finally:
         if conn:
             conn.close()
-# Batch script routes
-@app.route('/accept', methods=['POST'])
-def accept_username():
-    username = request.form.get('username')
+
+@app.route('/approve_username', methods=['POST'])
+def approve_username():
+    username = request.json.get('username')
+    if not username:
+        return jsonify({"status": "failure", "message": "No username provided"}), 400
 
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("UPDATE registrations SET status = 'accepted' WHERE username = ?", (username,))
-        conn.commit()
+        cursor.execute("UPDATE passkey SET status = 'approved' WHERE username = ? AND status = 'pending'", (username,))
         if cursor.rowcount == 0:
-            return jsonify({"status": "failure", "message": "Username not found"}), 404
-        return jsonify({"status": "success", "message": f"Username '{username}' accepted"}), 200
+            return jsonify({"status": "failure", "message": "Username not found or already processed"}), 404
+        conn.commit()
+        return jsonify({"status": "success", "message": "Username approved"}), 200
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
-        return jsonify({"status": "failure", "message": "Server error"}), 500
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
     finally:
         if conn:
             conn.close()
 
-@app.route('/deny', methods=['POST'])
+@app.route('/deny_username', methods=['POST'])
 def deny_username():
-    username = request.form.get('username')
-    reason = request.form.get('reason')
+    username = request.json.get('username')
+    reason = request.json.get('reason')
+    if not username or not reason:
+        return jsonify({"status": "failure", "message": "Username and reason required"}), 400
 
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("UPDATE registrations SET status = 'denied', reason = ? WHERE username = ?", (reason, username))
-        conn.commit()
+        cursor.execute("UPDATE passkey SET status = 'denied', denial_reason = ? WHERE username = ? AND status = 'pending'",
+                       (reason, username))
         if cursor.rowcount == 0:
-            return jsonify({"status": "failure", "message": "Username not found"}), 404
-        return jsonify({"status": "success", "message": f"Username '{username}' denied"}), 200
+            return jsonify({"status": "failure", "message": "Username not found or already processed"}), 404
+        conn.commit()
+        return jsonify({"status": "success", "message": "Username denied"}), 200
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
-        return jsonify({"status": "failure", "message": "Server error"}), 500
+        return jsonify({"status": "failure", "message": "Database error occurred"}), 500
     finally:
         if conn:
             conn.close()
 
-# Route for Unity to check status
-@app.route('/status', methods=['GET'])
-def check_status():
-    username = request.args.get('username')
-
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT status, reason FROM registrations WHERE username = ?", (username,))
-        result = cursor.fetchone()
-
-        if result:
-            status, reason = result
-            return jsonify({"status": "success", "registration_status": status, "reason": reason}), 200
-        else:
-            return jsonify({"status": "failure", "message": "Username not found"}), 404
-    except sqlite3.Error as e:
-        logging.error(f"Database error: {e}")
-        return jsonify({"status": "failure", "message": "Server error"}), 500
-    finally:
-        if conn:
-            conn.close()
 
 # Root route
 @app.route('/')
