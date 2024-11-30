@@ -23,12 +23,12 @@ def init_db():
             )
         """)
         conn.commit()
+        logging.info("Database initialized and 'users' table created successfully.")
     except sqlite3.Error as e:
         logging.error(f"Database initialization error: {e}")
     finally:
         if conn:
             conn.close()
-
 
 @app.route('/register', methods=['POST'])
 def register():
