@@ -69,25 +69,6 @@ def verify_passkey():
         if conn:
             conn.close()
 
-@app.route('/approve', methods=['POST'])
-def approve_user():
-    username = request.form.get('username')
-    if not username:
-        return jsonify({"status": "failure", "message": "No username provided"}), 400
-    # Log the approval (could add database tracking if needed)
-    logging.info(f"User {username} approved.")
-    return jsonify({"status": "success", "message": f"User {username} approved"}), 200
-
-@app.route('/deny', methods=['POST'])
-def deny_user():
-    username = request.form.get('username')
-    reason = request.form.get('reason')
-    if not username or not reason:
-        return jsonify({"status": "failure", "message": "Username or reason missing"}), 400
-    # Log the denial
-    logging.info(f"User {username} denied. Reason: {reason}")
-    return jsonify({"status": "success", "message": f"User {username} denied with reason: {reason}"}), 200
-
 # Passkey update
 @app.route('/update', methods=['POST'])
 def update_passkey():
@@ -128,7 +109,27 @@ def check_passkey():
         if conn:
             conn.close()
 
+@app.route('/register', methods=['POST'])
+def register_user():
+    username = request.form.get('username')
+    logging.info(f"Registration attempted by: {username}")
+    # Optionally store the registration request for further processing
+    return jsonify({"status": "success", "message": "Registration attempt logged"}), 200
+
+@app.route('/approve', methods=['POST'])
+def approve_user():
+    username = request.form.get('username')
+    logging.info(f"{username} approved for registration.")
+    return jsonify({"status": "success", "message": f"{username} has been approved"}), 200
+
+@app.route('/deny', methods=['POST'])
+def deny_user():
+    username = request.form.get('username')
+    reason = request.form.get('reason')
+    logging.info(f"{username} denied for registration. Reason: {reason}")
+    return jsonify({"status": "success", "message": f"{username} denied. Reason: {reason}"}), 200
 
 if __name__ == '__main__':
     init_db()
     app.run(host='0.0.0.0', port=5000)
+    
