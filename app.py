@@ -109,27 +109,21 @@ def check_passkey():
         if conn:
             conn.close()
 
-@app.route('/register', methods=['POST'])
-def register_user():
+@app.route('/verify', methods=['POST'])
+def process_registration():
+    action = request.form.get('action')
     username = request.form.get('username')
-    logging.info(f"Registration attempted by: {username}")
-    # Optionally store the registration request for further processing
-    return jsonify({"status": "success", "message": "Registration attempt logged"}), 200
 
-@app.route('/approve', methods=['POST'])
-def approve_user():
-    username = request.form.get('username')
-    logging.info(f"{username} approved for registration.")
-    return jsonify({"status": "success", "message": f"{username} has been approved"}), 200
-
-@app.route('/deny', methods=['POST'])
-def deny_user():
-    username = request.form.get('username')
-    reason = request.form.get('reason')
-    logging.info(f"{username} denied for registration. Reason: {reason}")
-    return jsonify({"status": "success", "message": f"{username} denied. Reason: {reason}"}), 200
+    if action == "accept":
+        # Send a signal to Unity that the username is accepted
+        return jsonify({"status": "success", "message": f"{username} has been accepted"}), 200
+    elif action == "deny":
+        reason = request.form.get('reason', "No reason provided")
+        # Send a signal to Unity that the username is denied with a reason
+        return jsonify({"status": "denied", "reason": reason}), 200
+    else:
+        return jsonify({"status": "failure", "message": "Invalid action"}), 400
 
 if __name__ == '__main__':
     init_db()
     app.run(host='0.0.0.0', port=5000)
-    
