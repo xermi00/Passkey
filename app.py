@@ -15,7 +15,13 @@ def init_db():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+        # Create passkey table if it doesn't exist
         cursor.execute("""CREATE TABLE IF NOT EXISTS passkey (key TEXT)""")
+        
+        # Create pending_users table if it doesn't exist
+        cursor.execute("""CREATE TABLE IF NOT EXISTS pending_users (username TEXT)""")
+        
+        # Insert default passkey if table is empty
         cursor.execute("SELECT COUNT(*) FROM passkey")
         if cursor.fetchone()[0] == 0:
             cursor.execute("INSERT INTO passkey (key) VALUES ('default_passkey')")
