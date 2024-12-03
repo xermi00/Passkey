@@ -15,72 +15,14 @@ def init_db():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                username TEXT PRIMARY KEY,
-                status TEXT,  -- 'pending', 'accepted', or 'denied'
-                denial_reason TEXT
-            )
-        """)
+        cursor.execute("""CREATE TABLE IF NOT EXISTS passkey (key TEXT)""")
+        cursor.execute("SELECT COUNT(*) FROM passkey")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("INSERT INTO passkey (key) VALUES ('default_passkey')")
+            logging.info("Inserted default passkey.")
         conn.commit()
-        logging.info("Database initialized and 'users' table created successfully.")
     except sqlite3.Error as e:
         logging.error(f"Database initialization error: {e}")
-    finally:
-        if conn:
-            conn.close()
-
-@app.route('/register', methods=['POST'])
-def register():
-    username = request.form.get('username')
-    if username:
-        logging.info(f"{username} has attempted a registration.")
-        return jsonify({"status": "success", "message": "Registration received"}), 200
-    else:
-        return jsonify({"status": "failure", "message": "No username provided"}), 400
-        
-@app.route('/manage', methods=['GET', 'POST'])
-def manage_registration():
-    username = request.args.get('username') or request.form.get('username')
-    action = request.args.get('action') or request.form.get('action')
-    reason = request.form.get('reason', '')
-
-    if not username or not action:
-        return jsonify({"status": "failure", "message": "Invalid data"}), 400
-
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
-        if action == "accept":
-            cursor.execute("INSERT OR REPLACE INTO users (username, status, denial_reason) VALUES (?, 'accepted', NULL)", (username,))
-            conn.commit()
-            logging.info(f"User '{username}' accepted.")
-            return jsonify({"status": "success", "message": f"{username} has been accepted."}), 200
-
-        elif action == "deny":
-            cursor.execute("INSERT OR REPLACE INTO users (username, status, denial_reason) VALUES (?, 'denied', ?)", (username, reason))
-            conn.commit()
-            logging.info(f"User '{username}' denied for reason: {reason}.")
-            return jsonify({"status": "success", "message": f"{username} has been denied."}), 200
-
-        elif action == "check_accept":
-            cursor.execute("SELECT status FROM users WHERE username = ?", (username,))
-            result = cursor.fetchone()
-            if result and result[0] == "accepted":
-                return jsonify({"status": "success", "message": "accepted"}), 200
-
-        elif action == "check_deny":
-            cursor.execute("SELECT status, denial_reason FROM users WHERE username = ?", (username,))
-            result = cursor.fetchone()
-            if result and result[0] == "denied":
-                return jsonify({"status": "success", "message": "denied", "reason": result[1]}), 200
-
-        return jsonify({"status": "failure", "message": "No action taken"}), 400
-
-    except sqlite3.Error as e:
-        logging.error(f"Database error: {e}")
-        return jsonify({"status": "failure", "message": "Server error"}), 500
     finally:
         if conn:
             conn.close()
