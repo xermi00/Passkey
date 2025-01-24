@@ -1,8 +1,11 @@
-from flask_cors import CORS
-CORS(app)
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 
+# Create the Flask application instance
 app = Flask(__name__)
+
+# Apply CORS to the app
+CORS(app)
 
 # Store the password in memory
 current_password = "default_password"
