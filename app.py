@@ -15,6 +15,7 @@ current_password = "default_password"
 def validate_password():
     global current_password
     submitted_password = request.form.get('password')
+    print(f"Received password: {submitted_password}")  # Debug line
     if submitted_password == current_password:
         return jsonify(True)
     else:
