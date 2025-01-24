@@ -1,3 +1,4 @@
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
@@ -9,14 +10,6 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Store the password in memory
 current_password = "default_password"
-
-# Health endpoint
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({
-        "status": "success",
-        "message": "Server is live!"
-    }), 200
 
 @app.route('/validate', methods=['POST'])
 def validate_password():
