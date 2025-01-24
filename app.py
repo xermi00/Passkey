@@ -19,6 +19,11 @@ def validate_password():
     else:
         return jsonify(False)
 
+@app.route('/current_password', methods=['GET'])
+def get_current_password():
+    global current_password
+    return current_password, 200
+
 @app.route('/update_password', methods=['POST'])
 def update_password():
     global current_password
