@@ -5,10 +5,11 @@ from flask_cors import CORS
 app = Flask(__name__)
 
 # Apply CORS to the app
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
-# Store the password in memory
+# Store the password and server status in memory
 current_password = "default_password"
+server_status = "Server is live!"
 
 @app.route('/validate', methods=['POST'])
 def validate_password():
@@ -36,6 +37,14 @@ def update_password():
         return "Password updated successfully.", 200
     else:
         return "Failed to update password. Provide a valid password.", 400
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    global server_status
+    return jsonify({
+        "status": "success",
+        "message": server_status
+    }), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
